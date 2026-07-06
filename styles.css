@@ -1988,14 +1988,20 @@ img {
 }
 
 @media (max-width: 560px) {
+  .welcome {
+    align-content: start;
+    min-height: auto;
+  }
+
   .welcome-visual {
-    min-height: 178px;
+    background: url("assets/mobile-hero.png") center top / cover no-repeat;
+    height: 164px;
+    min-height: 0;
+    padding: 0;
   }
 
   .welcome-visual img {
-    min-height: 178px;
-    object-position: 100% top;
-    transform: scale(1.14);
+    display: none;
   }
 
   .welcome h1 {
@@ -2003,8 +2009,9 @@ img {
   }
 
   .welcome-panel {
-    gap: 12px;
-    padding: 16px;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 14px 16px 16px;
   }
 
   .welcome-copy {
@@ -2025,7 +2032,7 @@ img {
   }
 
   .context-item {
-    padding: 8px;
+    padding: 7px;
   }
 
   .context-item b {
@@ -2043,7 +2050,7 @@ img {
   }
 
   .role-card {
-    min-height: 112px;
+    min-height: 106px;
     padding: 10px;
   }
 
