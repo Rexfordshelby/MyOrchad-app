@@ -8,6 +8,35 @@ const assets = {
   revenue: "assets/revenue.png",
 };
 
+const supabaseConfig = {
+  url: "https://kbrpjigxqchldjnjyuem.supabase.co",
+  publishableKey: "sb_publishable_MS2gZ9VOqi5Vs2-KfXpH3g_Mc8uKc9i",
+  projectRef: "kbrpjigxqchldjnjyuem",
+};
+
+const supabaseBridge = {
+  client: null,
+  status: "mock",
+  message: "Mock data active until Supabase tables and RLS policies are ready.",
+  init() {
+    const supabaseGlobal = typeof supabase !== "undefined" ? supabase : null;
+    const supabaseFactory = window.supabase?.createClient || globalThis.supabase?.createClient || supabaseGlobal?.createClient;
+    if (!supabaseFactory) return;
+
+    this.client = supabaseFactory(supabaseConfig.url, supabaseConfig.publishableKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true,
+      },
+    });
+    this.status = "connected";
+    this.message = "Supabase client ready. Mock records remain visible until live tables are mapped.";
+  },
+};
+
+window.MyOrchardSupabase = supabaseBridge;
+
 const districts = ["Sindhudurg", "Ratnagiri", "Kolhapur"];
 
 const orchards = [
@@ -121,6 +150,7 @@ const state = {
   farmerStep: 0,
   farmerSubmitted: false,
   teamAccessOpen: false,
+  toast: "",
   selectedFarmId: "patil",
   orchardSearch: "",
   districtFilter: "All",
@@ -224,12 +254,12 @@ function render(preserveFocus = false) {
   const caret = preserveKey && "selectionStart" in active ? active.selectionStart : null;
 
   if (!state.role) {
-    app.innerHTML = renderWelcome();
+    app.innerHTML = renderWelcome() + renderToast();
   } else if (state.role === "admin") {
-    app.innerHTML = renderTopbar("Admin") + renderAdmin();
+    app.innerHTML = renderTopbar("Admin") + renderAdmin() + renderToast();
   } else {
     const roleLabel = state.role === "farmer" ? "Farmer" : "Supporter";
-    app.innerHTML = renderTopbar(roleLabel) + renderRoleShell(state.role);
+    app.innerHTML = renderTopbar(roleLabel) + renderRoleShell(state.role) + renderToast();
   }
 
   if (window.lucide) {
@@ -260,6 +290,11 @@ function renderBrand() {
       <span>MyOrchard</span>
     </div>
   `;
+}
+
+function renderToast() {
+  if (!state.toast) return "";
+  return `<div class="toast" role="status" aria-live="polite">${icon("check-circle-2")} ${escapeHtml(state.toast)}</div>`;
 }
 
 function renderTopbar(label) {
@@ -372,7 +407,7 @@ function renderRoleCard(role, title, iconName, body) {
       <span class="role-icon">${icon(iconName)}</span>
       <h2>${title}</h2>
       <p>${body}</p>
-      <strong>Continue as ${title}</strong>
+      <strong><span class="role-full-action">Continue as ${title}</span><span class="role-mobile-action">Continue</span></strong>
     </button>
   `;
 }
@@ -1096,7 +1131,7 @@ function renderAdmin() {
         <div class="rail-section">${renderNavItems("admin", state.adminTab)}</div>
       </aside>
       <main class="main">${renderAdminContent()}</main>
-      <nav class="bottom-nav">${renderNavItems("admin", state.adminTab).split("Settings</span>").join("Set</span>")}</nav>
+      <nav class="bottom-nav">${renderNavItems("admin", state.adminTab)}</nav>
     </div>
   `;
 }
@@ -1225,16 +1260,39 @@ function renderAdminReports() {
 function renderAdminSettings() {
   return `
     ${renderPageTitle("Settings", "Configure districts, crop types, adoption amount, and approval rules.")}
-    <div class="form-panel">
-      <div class="form-grid">
-        <label class="form-row"><span class="label">Adoption amount per tree</span><input class="input" value="5000" /></label>
-        <label class="form-row"><span class="label">Crop focus</span><input class="input" value="Cashew" /></label>
-        <label class="form-row"><span class="label">Farmer share</span><input class="input" value="40%" /></label>
-        <label class="form-row"><span class="label">Company share</span><input class="input" value="60%" /></label>
-        <label class="form-row full"><span class="label">Launch districts</span><input class="input" value="Sindhudurg, Ratnagiri, Kolhapur" /></label>
+    <div class="grid-2">
+      <div class="form-panel">
+        <div class="form-grid">
+          <label class="form-row"><span class="label">Adoption amount per tree</span><input class="input" value="5000" /></label>
+          <label class="form-row"><span class="label">Crop focus</span><input class="input" value="Cashew" /></label>
+          <label class="form-row"><span class="label">Farmer share</span><input class="input" value="40%" /></label>
+          <label class="form-row"><span class="label">Company share</span><input class="input" value="60%" /></label>
+          <label class="form-row full"><span class="label">Launch districts</span><input class="input" value="Sindhudurg, Ratnagiri, Kolhapur" /></label>
+        </div>
+        <div class="page-actions" style="margin-top:18px"><button class="btn">${icon("save")} Save settings</button></div>
       </div>
-      <div class="page-actions" style="margin-top:18px"><button class="btn">${icon("save")} Save settings</button></div>
+      ${renderSupabaseStatus()}
     </div>
+  `;
+}
+
+function renderSupabaseStatus() {
+  const connected = supabaseBridge.status === "connected";
+  return `
+    <section class="card">
+      <div class="section-title">
+        <h2>Data connection</h2>
+        <span class="tag ${connected ? "" : "clay"}">${icon(connected ? "database" : "database-zap")} ${connected ? "Supabase ready" : "Mock mode"}</span>
+      </div>
+      <div class="info-list">
+        <div><span>Project ref</span><strong>${supabaseConfig.projectRef}</strong></div>
+        <div><span>Endpoint</span><strong>supabase.co</strong></div>
+        <div><span>Client key</span><strong>Publishable</strong></div>
+        <div><span>Data source</span><strong>${connected ? "Client connected" : "Local mock data"}</strong></div>
+      </div>
+      <p class="muted" style="margin-top:14px">${supabaseBridge.message}</p>
+      <p class="muted" style="margin-top:8px">Server-only database URLs are kept out of the frontend.</p>
+    </section>
   `;
 }
 
@@ -1355,6 +1413,7 @@ function downloadTextFile(filename, content, mimeType = "text/plain") {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+  return filename;
 }
 
 function exportCsv(type) {
@@ -1365,8 +1424,7 @@ function exportCsv(type) {
       ["Priya Sharma", "5", "08 May 2026", "10000"],
       ["Anand Deshmukh", "5", "15 Apr 2026", "10000"],
     ];
-    downloadTextFile("myorchard-farmer-adoptions.csv", toCsv(rows), "text/csv");
-    return;
+    return downloadTextFile("myorchard-farmer-adoptions.csv", toCsv(rows), "text/csv");
   }
 
   if (type === "admin-payments") {
@@ -1376,8 +1434,10 @@ function exportCsv(type) {
       ["Priya Sharma", "Kadam Orchard", "3", "15000", "6000", "9000"],
       ["Rahul Mehta", "Naik Cashew Farm", "10", "50000", "20000", "30000"],
     ];
-    downloadTextFile("myorchard-admin-payments.csv", toCsv(rows), "text/csv");
+    return downloadTextFile("myorchard-admin-payments.csv", toCsv(rows), "text/csv");
   }
+
+  return "";
 }
 
 function downloadCertificate() {
@@ -1392,7 +1452,7 @@ function downloadCertificate() {
     "Date: 06 July 2026",
     `Certificate ID: MYO-${farm.id.toUpperCase()}-${state.treeCount}26`,
   ].join("\n");
-  downloadTextFile("myorchard-adoption-certificate.txt", content, "text/plain");
+  return downloadTextFile("myorchard-adoption-certificate.txt", content, "text/plain");
 }
 
 document.addEventListener("click", (event) => {
@@ -1405,6 +1465,7 @@ document.addEventListener("click", (event) => {
     state.role = target.dataset.role;
     state.teamAccessOpen = false;
     state.loginMessage = "";
+    state.toast = "";
     if (state.role === "farmer" && !state.farmerSubmitted) state.farmerTab = "onboarding";
     render();
     return;
@@ -1433,23 +1494,31 @@ document.addEventListener("click", (event) => {
 
   if (action === "switch-role") {
     state.role = null;
+    state.toast = "";
     render();
     return;
   }
 
   if (action === "export-csv") {
-    exportCsv(target.dataset.export);
+    const filename = exportCsv(target.dataset.export);
+    if (filename) {
+      state.toast = `${filename} downloaded`;
+      render();
+    }
     return;
   }
 
   if (action === "download-certificate") {
-    downloadCertificate();
+    const filename = downloadCertificate();
+    state.toast = `${filename} downloaded`;
+    render();
     return;
   }
 
   if (action === "nav") {
     const role = target.dataset.role;
     const tab = target.dataset.tab;
+    state.toast = "";
     if (role === "farmer") state.farmerTab = tab;
     if (role === "supporter") state.supporterTab = tab;
     if (role === "admin") state.adminTab = tab;
@@ -1591,4 +1660,5 @@ document.addEventListener("change", (event) => {
   }
 });
 
+supabaseBridge.init();
 render();

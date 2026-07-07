@@ -21,4 +21,6 @@ Open `http://127.0.0.1:5177/`.
 
 ## Notes
 
-The app currently uses local mock data. Supabase can be connected later for authentication, profiles, farms, adoptions, payments, certificates, and admin verification records.
+The app currently renders local mock data while the Supabase client is initialized with the project publishable key. Once tables and RLS policies are ready, map the client to authentication, profiles, farms, adoptions, payments, certificates, and admin verification records.
+
+Do not place the Postgres pooler/database connection string in this frontend repo. Keep it server-side only.
