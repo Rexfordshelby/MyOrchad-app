@@ -34,6 +34,9 @@ create table if not exists public.verifications (
   created_at timestamptz not null default now()
 );
 
+create unique index if not exists verifications_farm_farmer_key
+  on public.verifications (farm_name, farmer_name);
+
 create table if not exists public.farmer_updates (
   id uuid primary key default gen_random_uuid(),
   orchard_slug text references public.orchards(slug) on delete set null,
@@ -41,6 +44,9 @@ create table if not exists public.farmer_updates (
   body text not null,
   created_at timestamptz not null default now()
 );
+
+create unique index if not exists farmer_updates_seed_key
+  on public.farmer_updates (orchard_slug, title, created_at);
 
 create table if not exists public.adoptions (
   id uuid primary key default gen_random_uuid(),
@@ -104,10 +110,16 @@ insert into public.verifications
 values
   ('Ramesh Naik', 'Naik Cashew Farm', 'Kolhapur', 'Pending', 800),
   ('Maya Kadam', 'Kadam Orchard', 'Sindhudurg', 'Pending', 980),
-  ('Suresh Patil', 'Patil Cashew Farm', 'Ratnagiri', 'Verified', 1200);
+  ('Suresh Patil', 'Patil Cashew Farm', 'Ratnagiri', 'Verified', 1200)
+on conflict (farm_name, farmer_name) do update set
+  district = excluded.district,
+  status = excluded.status,
+  total_trees = excluded.total_trees;
 
 insert into public.farmer_updates
   (orchard_slug, title, body, created_at)
 values
   ('naik', 'Flowering stage', 'Trees are healthy and flowering well after organic spray.', '2026-05-12 09:00:00+05:30'),
-  ('naik', 'Irrigation completed', 'Drip irrigation checked across the adopted tree rows.', '2026-04-22 09:00:00+05:30');
+  ('naik', 'Irrigation completed', 'Drip irrigation checked across the adopted tree rows.', '2026-04-22 09:00:00+05:30')
+on conflict (orchard_slug, title, created_at) do update set
+  body = excluded.body;
