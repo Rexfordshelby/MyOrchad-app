@@ -95,6 +95,13 @@ img {
   border-radius: 10px;
 }
 
+.brand-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
 .logo-road {
   position: absolute;
   width: 30px;
@@ -411,6 +418,110 @@ img {
 
 .role-mobile-action {
   display: none;
+}
+
+.auth-card {
+  display: grid;
+  gap: 13px;
+  padding: 14px;
+  background: rgba(255, 253, 246, 0.84);
+  border: 1px solid rgba(23, 63, 34, 0.14);
+  border-radius: 8px;
+  box-shadow: var(--soft-shadow);
+}
+
+.auth-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.auth-head h2 {
+  margin: 5px 0 0;
+  color: var(--forest);
+  font-size: clamp(1.05rem, 1.4vw, 1.25rem);
+  line-height: 1.15;
+}
+
+.auth-tabs,
+.auth-role-grid {
+  display: grid;
+  gap: 7px;
+}
+
+.auth-tabs {
+  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  padding: 4px;
+  background: #f2ead8;
+  border: 1px solid rgba(23, 63, 34, 0.1);
+  border-radius: 8px;
+}
+
+.auth-tab,
+.auth-role {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  color: var(--forest);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 850;
+}
+
+.auth-tab.active,
+.auth-role.active {
+  background: #fffdf6;
+  border-color: rgba(47, 125, 59, 0.2);
+  box-shadow: 0 6px 14px rgba(31, 52, 34, 0.08);
+}
+
+.auth-role-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.auth-role {
+  justify-content: flex-start;
+  min-height: 42px;
+  padding: 9px 10px;
+  background: rgba(255, 253, 246, 0.66);
+  border-color: rgba(23, 63, 34, 0.12);
+}
+
+.auth-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.auth-form .form-row:first-child:nth-last-child(4) {
+  grid-column: 1 / -1;
+}
+
+.auth-submit {
+  min-width: 176px;
+}
+
+.auth-message,
+.auth-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  margin: 0;
+  color: var(--river);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.auth-message {
+  color: var(--danger);
 }
 
 .context-strip {
@@ -934,6 +1045,7 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  min-width: 0;
   padding-bottom: 10px;
   border-bottom: 1px solid rgba(222, 214, 191, 0.78);
 }
@@ -944,14 +1056,17 @@ img {
 }
 
 .info-list span {
+  flex: 0 0 auto;
   color: var(--muted);
   font-size: 0.84rem;
   font-weight: 800;
 }
 
 .info-list strong {
+  min-width: 0;
   color: var(--forest);
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .check-list div {
@@ -1692,13 +1807,17 @@ img {
 
 .queue-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-  align-items: center;
+  align-items: start;
   padding: 13px;
   background: #fffdf6;
   border: 1px solid rgba(23, 63, 34, 0.12);
   border-radius: 8px;
+}
+
+.queue-item .page-actions {
+  justify-content: flex-start;
 }
 
 .queue-item h3 {
@@ -1903,9 +2022,20 @@ img {
   .grid-2,
   .grid-3,
   .method-grid,
+  .auth-head,
+  .auth-form,
   .context-strip,
   .team-panel {
     grid-template-columns: 1fr;
+  }
+
+  .auth-tabs,
+  .auth-role-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .auth-submit {
+    width: 100%;
   }
 
   .team-panel .btn {
@@ -2038,14 +2168,13 @@ img {
 @media (max-width: 560px) {
   .welcome {
     align-content: start;
-    grid-template-rows: 320px minmax(0, 1fr);
-    grid-template-rows: clamp(260px, 40vh, 340px) minmax(0, 1fr);
+    grid-template-rows: clamp(150px, 24vh, 200px) minmax(0, 1fr);
     min-height: 100vh;
     min-height: 100svh;
   }
 
   .welcome-visual {
-    background: url("assets/mobile-hero.png") center top / cover no-repeat;
+    background: url("assets/mobile-hero.png") center 8% / cover no-repeat;
     height: auto;
     min-height: 0;
     padding: 0;
@@ -2061,9 +2190,9 @@ img {
 
   .welcome-panel {
     justify-content: flex-start;
-    gap: 10px;
+    gap: 9px;
     min-height: 0;
-    padding: 14px 16px max(18px, env(safe-area-inset-bottom));
+    padding: 12px 14px max(18px, env(safe-area-inset-bottom));
   }
 
   .welcome-copy {
@@ -2102,8 +2231,8 @@ img {
   }
 
   .role-card {
-    min-height: 106px;
-    padding: 10px;
+    min-height: 92px;
+    padding: 9px;
   }
 
   .role-card .role-icon {
@@ -2134,6 +2263,40 @@ img {
   .team-access {
     margin-top: auto;
     gap: 6px;
+  }
+
+  .auth-card {
+    gap: 9px;
+    padding: 11px;
+  }
+
+  .auth-head {
+    gap: 8px;
+  }
+
+  .auth-head h2 {
+    font-size: 1rem;
+  }
+
+  .auth-tabs {
+    gap: 4px;
+  }
+
+  .auth-tab,
+  .auth-role {
+    min-height: 34px;
+    font-size: 0.78rem;
+  }
+
+  .auth-form {
+    gap: 8px;
+  }
+
+  .auth-note,
+  .auth-message {
+    align-items: flex-start;
+    font-size: 0.76rem;
+    line-height: 1.28;
   }
 
   .phone-preview {

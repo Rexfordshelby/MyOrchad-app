@@ -264,6 +264,17 @@ async function downloadFrom(client, selector) {
   return "export.csv";
 }
 
+async function authenticate(client, { mode = "signin", role = "supporter", name = "", email, password = "Launch2026!" }) {
+  await clickUnique(client, `[data-action="auth-mode"][data-mode="${mode}"]`);
+  await clickUnique(client, `[data-action="auth-role"][data-role="${role}"]`);
+  if (mode === "signup") {
+    await fill(client, '[data-field="authName"]', name);
+  }
+  await fill(client, '[data-field="authEmail"]', email);
+  await fill(client, '[data-field="authPassword"]', password);
+  await clickUnique(client, '[data-action="auth-submit"]');
+}
+
 async function main() {
   const { chrome, port } = launchChrome();
   const base = `http://127.0.0.1:${port}`;
@@ -301,9 +312,14 @@ async function main() {
   await navigate(client, `${appUrl}?v=production-desktop-${Date.now()}`);
 
   await clickUnique(client, '[data-action="choose-role"][data-role="farmer"]');
+  await authenticate(client, {
+    mode: "signup",
+    role: "farmer",
+    name: "Production Farmer",
+    email: "farmer.demo@example.com",
+  });
   screenshots.push(["Farmer onboarding", await saveShot(client, "03-farmer-onboarding")]);
-  checks.farmerStartsBlank = await evaluate(client, `document.querySelector('[data-field="fullName"]')?.value === ""`);
-  await fill(client, '[data-field="fullName"]', "Production Farmer");
+  checks.farmerStartsWithSignupName = await evaluate(client, `document.querySelector('[data-field="fullName"]')?.value === "Production Farmer"`);
   await fill(client, '[data-field="mobile"]', "90000 00000");
   await fill(client, '[data-field="village"]', "Verified Village");
 
@@ -333,6 +349,12 @@ async function main() {
   log("supporter home");
   await clickUnique(client, '[data-action="switch-role"]');
   await clickUnique(client, '[data-action="choose-role"][data-role="supporter"]');
+  await authenticate(client, {
+    mode: "signup",
+    role: "supporter",
+    name: "Production Supporter",
+    email: "demo@myorchard.in",
+  });
   checks.supporterAdminHidden = !(await evaluate(client, `document.body.textContent.includes("Admin tools")`));
   screenshots.push(["Supporter home", await saveShot(client, "07-supporter-home")]);
   checks.supporterNoSplitCopy = !(await evaluate(client, `document.body.textContent.includes("40" + "%") || document.body.textContent.includes("60" + "%")`));
@@ -342,50 +364,57 @@ async function main() {
   screenshots.push(["Orchards listing", await saveShot(client, "08-orchards-listing")]);
   checks.orchardsUseEmptyState = await evaluate(client, `document.body.textContent.includes("No orchards published yet") || document.querySelectorAll('[data-action="open-farm"]').length > 0`);
 
+  log("supporter adoption");
+  await nav(client, "supporter", "adoption");
+  screenshots.push(["Supporter adoption", await saveShot(client, "09-supporter-adoption")]);
+
   log("supporter updates");
   await nav(client, "supporter", "updates");
-  screenshots.push(["Supporter updates", await saveShot(client, "09-supporter-updates")]);
+  screenshots.push(["Supporter updates", await saveShot(client, "10-supporter-updates")]);
 
   log("supporter profile");
   await nav(client, "supporter", "profile");
-  screenshots.push(["Supporter profile", await saveShot(client, "10-supporter-profile")]);
+  screenshots.push(["Supporter profile", await saveShot(client, "11-supporter-profile")]);
 
   log("admin login");
   await clickUnique(client, '[data-action="switch-role"]');
-  await clickUnique(client, '[data-action="toggle-team-access"]');
-  await fill(client, '[data-field="loginEmail"]', "raashifshaikh70@gmail.com");
-  await clickUnique(client, '[data-action="team-login"]');
+  await authenticate(client, {
+    mode: "signin",
+    role: "supporter",
+    email: "raashifshaikh70@gmail.com",
+  });
 
   checks.adminEmailAccepted = await evaluate(client, `document.body.textContent.includes("Dashboard overview")`);
   checks.adminNavVisible = await evaluate(client, `document.body.textContent.includes("Admin tools")`);
-  screenshots.push(["Admin dashboard", await saveShot(client, "11-admin-dashboard")]);
+  checks.emailOnlyTeamLoginRemoved = await evaluate(client, `document.querySelector('[data-action="team-login"]') === null`);
+  screenshots.push(["Admin dashboard", await saveShot(client, "12-admin-dashboard")]);
 
   log("admin farmers");
   await nav(client, "admin", "farmers");
   checks.farmerSubmissionVisibleToAdmin = await evaluate(client, `document.body.textContent.includes("Production Orchard")`);
-  screenshots.push(["Admin farmers", await saveShot(client, "12-admin-farmers")]);
+  screenshots.push(["Admin farmers", await saveShot(client, "13-admin-farmers")]);
 
   log("admin orchards");
   await nav(client, "admin", "orchards");
-  screenshots.push(["Admin orchards", await saveShot(client, "13-admin-orchards")]);
+  screenshots.push(["Admin orchards", await saveShot(client, "14-admin-orchards")]);
 
   log("admin verification");
   await nav(client, "admin", "verifications");
-  screenshots.push(["Admin verification", await saveShot(client, "14-admin-verification")]);
+  screenshots.push(["Admin verification", await saveShot(client, "15-admin-verification")]);
 
   log("admin payments");
   await nav(client, "admin", "payments");
-  screenshots.push(["Admin payments", await saveShot(client, "15-admin-payments")]);
+  screenshots.push(["Admin payments", await saveShot(client, "16-admin-payments")]);
   checks.adminPaymentsExport = await downloadFrom(client, '[data-action="export-csv"][data-export="admin-payments"]');
   checks.adminNoSplitCopy = !(await evaluate(client, `document.body.textContent.includes("40" + "%") || document.body.textContent.includes("60" + "%") || document.body.textContent.includes(["40", "60"].join(" / "))`));
 
   log("admin reports");
   await nav(client, "admin", "reports");
-  screenshots.push(["Admin reports", await saveShot(client, "16-admin-reports")]);
+  screenshots.push(["Admin reports", await saveShot(client, "17-admin-reports")]);
 
   log("admin settings");
   await nav(client, "admin", "settings");
-  screenshots.push(["Admin settings", await saveShot(client, "17-admin-settings")]);
+  screenshots.push(["Admin settings", await saveShot(client, "18-admin-settings")]);
   checks.dataConnectionText = (await evaluate(client, `document.body.textContent.includes("Live data")`))
     ? "Live data"
     : "Not live";

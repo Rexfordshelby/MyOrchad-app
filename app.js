@@ -1,4 +1,5 @@
 const assets = {
+  logo: "assets/favicon.jpeg",
   cover: "assets/cover.png",
   farmer: "assets/farmer-onboarding.png",
   supporter: "assets/supporter.png",
@@ -143,8 +144,13 @@ const nav = {
 
 const state = {
   role: null,
-  loginEmail: "",
-  loginMessage: "",
+  session: null,
+  authMode: "signin",
+  authRole: "supporter",
+  authEmail: "",
+  authPassword: "",
+  authName: "",
+  authMessage: "",
   adminEmails: [
     "admin@myorchard.app",
     "admin@kalpavrikshaagro.com",
@@ -156,7 +162,6 @@ const state = {
   adminTab: "dashboard",
   farmerStep: 0,
   farmerSubmitted: false,
-  teamAccessOpen: false,
   toast: "",
   selectedFarmId: "patil",
   orchardSearch: "",
@@ -213,6 +218,28 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
+}
+
+function isAdminEmail(value) {
+  return state.adminEmails.includes(normalizeEmail(value));
+}
+
+function hasAdminAccess() {
+  return state.role === "admin" && state.session?.role === "admin" && isAdminEmail(state.session.email);
+}
+
+function roleLabel(role) {
+  if (role === "farmer") return "Farmer";
+  if (role === "supporter") return "Supporter";
+  return "Team";
 }
 
 function firstValue(row, keys, fallback = "") {
@@ -334,11 +361,15 @@ function render(preserveFocus = false) {
 
   if (!state.role) {
     app.innerHTML = renderWelcome() + renderToast();
-  } else if (state.role === "admin") {
+  } else if (hasAdminAccess()) {
     app.innerHTML = renderTopbar("Admin") + renderAdmin() + renderToast();
+  } else if (state.role === "admin") {
+    state.role = null;
+    state.session = null;
+    state.authMessage = "Please sign in with an approved team email.";
+    app.innerHTML = renderWelcome() + renderToast();
   } else {
-    const roleLabel = state.role === "farmer" ? "Farmer" : "Supporter";
-    app.innerHTML = renderTopbar(roleLabel) + renderRoleShell(state.role) + renderToast();
+    app.innerHTML = renderTopbar(roleLabel(state.role)) + renderRoleShell(state.role) + renderToast();
   }
 
   if (window.lucide) {
@@ -360,11 +391,7 @@ function renderBrand() {
   return `
     <div class="brand">
       <span class="brand-mark brand-logo" aria-hidden="true">
-        <span class="logo-road r1"></span>
-        <span class="logo-road r2"></span>
-        <span class="logo-road r3"></span>
-        <span class="logo-road r4"></span>
-        <span class="logo-dot"></span>
+        <img class="brand-image" src="${assets.logo}" alt="" />
       </span>
       <span>MyOrchard</span>
     </div>
@@ -377,14 +404,18 @@ function renderToast() {
 }
 
 function renderTopbar(label) {
+  const account = state.session?.email
+    ? `<span class="pill account-pill">${icon("user-round-check")} ${escapeHtml(state.session.email)}</span>`
+    : "";
   return `
     <header class="topbar">
       ${renderBrand()}
       <div class="top-actions">
         <span class="pill gold">${icon("leaf")} ${label}</span>
+        ${account}
         <span class="pill">${icon("shield-check")} Kalpavriksha Agro</span>
         <button class="btn secondary" type="button" data-action="switch-role">
-          ${icon("repeat-2")} Switch role
+          ${icon("log-out")} Sign out
         </button>
       </div>
     </header>
@@ -424,27 +455,69 @@ function renderWelcome() {
           ${renderRoleCard("farmer", "Farmer", "tractor", "Register your orchard, submit verification details, and keep supporters updated.")}
           ${renderRoleCard("supporter", "Supporter", "heart-handshake", "Browse verified orchards, choose trees, and receive progress updates.")}
         </div>
-        <div class="team-access">
-          <button class="team-link" type="button" data-action="toggle-team-access">
-            ${icon("lock-keyhole")} Team access
-          </button>
-          ${
-            state.teamAccessOpen
-              ? `<div class="team-panel">
-                  <label class="form-row">
-                    <span class="label">Work email</span>
-                    <input class="input" type="email" value="${escapeHtml(state.loginEmail)}" placeholder="name@kalpavrikshaagro.com" data-field="loginEmail" data-preserve="login-email" />
-                  </label>
-                  <button class="btn" type="button" data-action="team-login">
-                    ${icon("arrow-right")} Continue
-                  </button>
-                  ${state.loginMessage ? `<p class="login-message">${escapeHtml(state.loginMessage)}</p>` : ""}
-                </div>`
-              : ""
-          }
-        </div>
+        ${renderAuthPanel()}
       </section>
     </main>
+  `;
+}
+
+function renderAuthPanel() {
+  const isSignup = state.authMode === "signup";
+  const selectedLabel = roleLabel(state.authRole);
+  return `
+    <section class="auth-card" aria-label="Account access">
+      <div class="auth-head">
+        <div>
+          <span class="eyebrow">${icon("shield-check")} Secure account access</span>
+          <h2>${isSignup ? "Create your MyOrchard account" : "Sign in to continue"}</h2>
+        </div>
+        <div class="auth-tabs" role="tablist" aria-label="Account mode">
+          <button class="auth-tab ${!isSignup ? "active" : ""}" type="button" data-action="auth-mode" data-mode="signin">${icon("log-in")} Sign in</button>
+          <button class="auth-tab ${isSignup ? "active" : ""}" type="button" data-action="auth-mode" data-mode="signup">${icon("user-plus")} Sign up</button>
+        </div>
+      </div>
+
+      <div class="auth-role-grid" aria-label="Account type">
+        ${["farmer", "supporter"]
+          .map(
+            (role) => `
+              <button class="auth-role ${state.authRole === role ? "active" : ""}" type="button" data-action="auth-role" data-role="${role}">
+                ${icon(role === "farmer" ? "tractor" : "heart-handshake")}
+                <span>${roleLabel(role)}</span>
+              </button>
+            `,
+          )
+          .join("")}
+      </div>
+
+      <div class="auth-form">
+        ${
+          isSignup
+            ? `<label class="form-row">
+                <span class="label">Full name</span>
+                <input class="input" type="text" autocomplete="name" value="${escapeHtml(state.authName)}" placeholder="Your full name" data-field="authName" data-preserve="auth-name" />
+              </label>`
+            : ""
+        }
+        <label class="form-row">
+          <span class="label">Email address</span>
+          <input class="input" type="email" autocomplete="email" value="${escapeHtml(state.authEmail)}" placeholder="you@example.com" data-field="authEmail" data-preserve="auth-email" />
+        </label>
+        <label class="form-row">
+          <span class="label">Password</span>
+          <input class="input" type="password" autocomplete="${isSignup ? "new-password" : "current-password"}" value="${escapeHtml(state.authPassword)}" placeholder="Minimum 8 characters" data-field="authPassword" data-preserve="auth-password" />
+        </label>
+        <button class="btn auth-submit" type="button" data-action="auth-submit">
+          ${icon(isSignup ? "user-plus" : "arrow-right")} ${isSignup ? `Create ${selectedLabel} account` : `Continue as ${selectedLabel}`}
+        </button>
+      </div>
+
+      ${
+        state.authMessage
+          ? `<p class="auth-message" role="status" aria-live="polite">${escapeHtml(state.authMessage)}</p>`
+          : `<p class="auth-note">${icon("lock-keyhole")} Approved team emails unlock management tools after sign in.</p>`
+      }
+    </section>
   `;
 }
 
@@ -486,7 +559,7 @@ function renderRoleCard(role, title, iconName, body) {
       <span class="role-icon">${icon(iconName)}</span>
       <h2>${title}</h2>
       <p>${body}</p>
-      <strong><span class="role-full-action">Continue as ${title}</span><span class="role-mobile-action">Continue</span></strong>
+      <strong><span class="role-full-action">Start ${title} account</span><span class="role-mobile-action">Select</span></strong>
     </button>
   `;
 }
@@ -1554,6 +1627,59 @@ function downloadCertificate() {
   return downloadTextFile("myorchard-adoption-certificate.txt", content, "text/plain");
 }
 
+function handleAuthSubmit() {
+  const email = normalizeEmail(state.authEmail);
+  const password = state.authPassword;
+  const name = state.authName.trim();
+  const errors = [];
+  const teamEmail = isAdminEmail(email);
+
+  if (state.authMode === "signup" && !name) errors.push("Enter your full name.");
+  if (!isValidEmail(email)) errors.push("Enter a valid email address.");
+  if (password.length < 8) errors.push("Use a password with at least 8 characters.");
+
+  if (state.authMode === "signup" && teamEmail) {
+    state.authMessage = "This approved team email is already managed by Kalpavriksha Agro. Please use Sign in.";
+    render(true);
+    return;
+  }
+
+  if (errors.length) {
+    state.authMessage = errors[0];
+    render(true);
+    return;
+  }
+
+  const nextRole = teamEmail ? "admin" : state.authRole;
+  const displayName = name || (nextRole === "admin" ? "Team member" : roleLabel(nextRole));
+  state.session = {
+    role: nextRole,
+    email,
+    name: displayName,
+  };
+  state.role = nextRole;
+  state.authPassword = "";
+  state.authMessage = "";
+  state.toast = nextRole === "admin" ? "Management access unlocked" : `Welcome, ${displayName}`;
+
+  if (nextRole === "admin") {
+    state.adminTab = "dashboard";
+  }
+
+  if (nextRole === "farmer") {
+    state.farmerTab = state.farmerSubmitted ? "dashboard" : "onboarding";
+    if (!state.farmerForm.fullName && displayName !== "Farmer") state.farmerForm.fullName = displayName;
+  }
+
+  if (nextRole === "supporter") {
+    state.supporterTab = "home";
+    state.supporterProfile.email = email;
+    if (displayName !== "Supporter") state.supporterProfile.name = displayName;
+  }
+
+  render();
+}
+
 document.addEventListener("click", (event) => {
   const target = event.target.closest("[data-action]");
   if (!target) return;
@@ -1561,38 +1687,37 @@ document.addEventListener("click", (event) => {
   const action = target.dataset.action;
 
   if (action === "choose-role") {
-    state.role = target.dataset.role;
-    state.teamAccessOpen = false;
-    state.loginMessage = "";
+    state.authMode = "signup";
+    state.authRole = target.dataset.role;
+    state.authMessage = "";
     state.toast = "";
-    if (state.role === "farmer" && !state.farmerSubmitted) state.farmerTab = "onboarding";
-    render();
+    render(true);
     return;
   }
 
-  if (action === "toggle-team-access") {
-    state.teamAccessOpen = !state.teamAccessOpen;
-    state.loginMessage = "";
-    render();
+  if (action === "auth-mode") {
+    state.authMode = target.dataset.mode;
+    state.authMessage = "";
+    render(true);
     return;
   }
 
-  if (action === "team-login") {
-    const email = state.loginEmail.trim().toLowerCase();
-    if (state.adminEmails.includes(email)) {
-      state.role = "admin";
-      state.adminTab = "dashboard";
-      state.teamAccessOpen = false;
-      state.loginMessage = "";
-    } else {
-      state.loginMessage = "This email does not have team access.";
-    }
-    render();
+  if (action === "auth-role") {
+    state.authRole = target.dataset.role;
+    state.authMessage = "";
+    render(true);
+    return;
+  }
+
+  if (action === "auth-submit") {
+    handleAuthSubmit();
     return;
   }
 
   if (action === "switch-role") {
     state.role = null;
+    state.session = null;
+    state.authPassword = "";
     state.toast = "";
     render();
     return;
@@ -1740,9 +1865,9 @@ document.addEventListener("input", (event) => {
     return;
   }
 
-  if (target.dataset.field === "loginEmail") {
-    state.loginEmail = target.value;
-    state.loginMessage = "";
+  if (["authEmail", "authPassword", "authName"].includes(target.dataset.field)) {
+    state[target.dataset.field] = target.value;
+    state.authMessage = "";
     return;
   }
 
