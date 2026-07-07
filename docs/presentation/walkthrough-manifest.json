@@ -1,0 +1,95 @@
+{
+  "generatedAt": "2026-07-07T06:27:04.560Z",
+  "appUrl": "http://127.0.0.1:5177/",
+  "checks": {
+    "normalUserAdminHidden": true,
+    "farmerExport": "myorchard-farmer-adoptions.csv",
+    "supporterAdminHidden": true,
+    "adminEmailAccepted": true,
+    "adminNavVisible": true,
+    "adminPaymentsExport": "myorchard-admin-payments.csv",
+    "dataConnectionText": "Live data"
+  },
+  "screenshots": [
+    {
+      "title": "Welcome desktop",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\01-welcome-desktop.png"
+    },
+    {
+      "title": "Welcome mobile",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\02-welcome-mobile.png"
+    },
+    {
+      "title": "Farmer onboarding",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\03-farmer-onboarding.png"
+    },
+    {
+      "title": "Farmer dashboard",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\04-farmer-dashboard.png"
+    },
+    {
+      "title": "Farmer updates",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\05-farmer-updates.png"
+    },
+    {
+      "title": "Farmer profile",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\06-farmer-profile.png"
+    },
+    {
+      "title": "Supporter home",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\07-supporter-home.png"
+    },
+    {
+      "title": "Orchards listing",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\08-orchards-listing.png"
+    },
+    {
+      "title": "Farm detail",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\09-farm-detail.png"
+    },
+    {
+      "title": "Adoption payment",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\10-adoption-payment.png"
+    },
+    {
+      "title": "Adoption complete",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\11-adoption-complete.png"
+    },
+    {
+      "title": "Supporter updates",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\12-supporter-updates.png"
+    },
+    {
+      "title": "Supporter profile",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\13-supporter-profile.png"
+    },
+    {
+      "title": "Admin dashboard",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\14-admin-dashboard.png"
+    },
+    {
+      "title": "Admin farmers",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\15-admin-farmers.png"
+    },
+    {
+      "title": "Admin orchards",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\16-admin-orchards.png"
+    },
+    {
+      "title": "Admin verification",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\17-admin-verification.png"
+    },
+    {
+      "title": "Admin payments",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\18-admin-payments.png"
+    },
+    {
+      "title": "Admin reports",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\19-admin-reports.png"
+    },
+    {
+      "title": "Admin settings",
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\20-admin-settings.png"
+    }
+  ]
+}

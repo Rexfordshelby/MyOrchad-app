@@ -204,7 +204,12 @@ const state = {
   role: null,
   loginEmail: "",
   loginMessage: "",
-  adminEmails: ["admin@myorchard.app", "admin@kalpavrikshaagro.com", "team@kalpavrikshaagro.com"],
+  adminEmails: [
+    "admin@myorchard.app",
+    "admin@kalpavrikshaagro.com",
+    "team@kalpavrikshaagro.com",
+    "raashifshaikh70@gmail.com",
+  ],
   farmerTab: "onboarding",
   supporterTab: "home",
   adminTab: "dashboard",
