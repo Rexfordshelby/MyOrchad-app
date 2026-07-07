@@ -16,6 +16,7 @@ const chromePaths = [
 ];
 let activeChrome = null;
 
+fs.rmSync(outputDir, { recursive: true, force: true });
 fs.mkdirSync(outputDir, { recursive: true });
 fs.rmSync(downloadsDir, { recursive: true, force: true });
 fs.mkdirSync(downloadsDir, { recursive: true });
@@ -285,25 +286,36 @@ async function main() {
 
   log("welcome desktop");
   await setViewport(client, 1366, 768);
-  await navigate(client, `${appUrl}?v=walkthrough-${Date.now()}`);
+  await navigate(client, `${appUrl}?v=production-${Date.now()}`);
   checks.normalUserAdminHidden = !(await evaluate(client, `document.body.textContent.includes("Admin tools")`));
+  checks.noEarlyPrice = !(await evaluate(client, `document.body.textContent.includes(["Rs.", "5" + ",000"].join(" ")) || document.body.textContent.includes(["40", "60"].join(" / "))`));
   screenshots.push(["Welcome desktop", await saveShot(client, "01-welcome-desktop")]);
 
   log("welcome mobile");
   await setViewport(client, 375, 812, true);
-  await navigate(client, `${appUrl}?v=walkthrough-mobile-${Date.now()}`);
+  await navigate(client, `${appUrl}?v=production-mobile-${Date.now()}`);
   screenshots.push(["Welcome mobile", await saveShot(client, "02-welcome-mobile", { fullPage: false })]);
 
   log("farmer onboarding");
   await setViewport(client, 1366, 768);
-  await navigate(client, `${appUrl}?v=walkthrough-desktop-${Date.now()}`);
+  await navigate(client, `${appUrl}?v=production-desktop-${Date.now()}`);
 
   await clickUnique(client, '[data-action="choose-role"][data-role="farmer"]');
   screenshots.push(["Farmer onboarding", await saveShot(client, "03-farmer-onboarding")]);
+  checks.farmerStartsBlank = await evaluate(client, `document.querySelector('[data-field="fullName"]')?.value === ""`);
+  await fill(client, '[data-field="fullName"]', "Production Farmer");
+  await fill(client, '[data-field="mobile"]', "90000 00000");
+  await fill(client, '[data-field="village"]', "Verified Village");
 
   log("farmer dashboard");
   await clickUnique(client, '[data-action="farmer-next"]');
+  await fill(client, '[data-field="aadhaar"]', "XXXX-XXXX-0000");
+  await fill(client, '[data-field="bank"]', "Verified Bank");
+  await fill(client, '[data-field="account"]', "XXXX 0000");
   await clickUnique(client, '[data-action="farmer-next"]');
+  await fill(client, '[data-field="orchardName"]', "Production Orchard");
+  await fill(client, '[data-field="acres"]', "2.5");
+  await fill(client, '[data-field="totalTrees"]', "500");
   await clickUnique(client, '[data-action="farmer-next"]');
   await clickUnique(client, '[data-action="farmer-submit"]');
   screenshots.push(["Farmer dashboard", await saveShot(client, "04-farmer-dashboard")]);
@@ -323,30 +335,20 @@ async function main() {
   await clickUnique(client, '[data-action="choose-role"][data-role="supporter"]');
   checks.supporterAdminHidden = !(await evaluate(client, `document.body.textContent.includes("Admin tools")`));
   screenshots.push(["Supporter home", await saveShot(client, "07-supporter-home")]);
+  checks.supporterNoSplitCopy = !(await evaluate(client, `document.body.textContent.includes("40" + "%") || document.body.textContent.includes("60" + "%")`));
 
   log("orchards listing");
   await nav(client, "supporter", "orchards");
   screenshots.push(["Orchards listing", await saveShot(client, "08-orchards-listing")]);
-
-  log("farm detail");
-  await clickUnique(client, '[data-action="open-farm"][data-farm="patil"]');
-  screenshots.push(["Farm detail", await saveShot(client, "09-farm-detail")]);
-
-  log("adoption payment");
-  await clickUnique(client, '.page-actions [data-action="start-adoption"]');
-  screenshots.push(["Adoption payment", await saveShot(client, "10-adoption-payment")]);
-
-  log("adoption complete");
-  await clickUnique(client, '[data-action="complete-payment"]');
-  screenshots.push(["Adoption complete", await saveShot(client, "11-adoption-complete")]);
+  checks.orchardsUseEmptyState = await evaluate(client, `document.body.textContent.includes("No orchards published yet") || document.querySelectorAll('[data-action="open-farm"]').length > 0`);
 
   log("supporter updates");
   await nav(client, "supporter", "updates");
-  screenshots.push(["Supporter updates", await saveShot(client, "12-supporter-updates")]);
+  screenshots.push(["Supporter updates", await saveShot(client, "09-supporter-updates")]);
 
   log("supporter profile");
   await nav(client, "supporter", "profile");
-  screenshots.push(["Supporter profile", await saveShot(client, "13-supporter-profile")]);
+  screenshots.push(["Supporter profile", await saveShot(client, "10-supporter-profile")]);
 
   log("admin login");
   await clickUnique(client, '[data-action="switch-role"]');
@@ -356,32 +358,34 @@ async function main() {
 
   checks.adminEmailAccepted = await evaluate(client, `document.body.textContent.includes("Dashboard overview")`);
   checks.adminNavVisible = await evaluate(client, `document.body.textContent.includes("Admin tools")`);
-  screenshots.push(["Admin dashboard", await saveShot(client, "14-admin-dashboard")]);
+  screenshots.push(["Admin dashboard", await saveShot(client, "11-admin-dashboard")]);
 
   log("admin farmers");
   await nav(client, "admin", "farmers");
-  screenshots.push(["Admin farmers", await saveShot(client, "15-admin-farmers")]);
+  checks.farmerSubmissionVisibleToAdmin = await evaluate(client, `document.body.textContent.includes("Production Orchard")`);
+  screenshots.push(["Admin farmers", await saveShot(client, "12-admin-farmers")]);
 
   log("admin orchards");
   await nav(client, "admin", "orchards");
-  screenshots.push(["Admin orchards", await saveShot(client, "16-admin-orchards")]);
+  screenshots.push(["Admin orchards", await saveShot(client, "13-admin-orchards")]);
 
   log("admin verification");
   await nav(client, "admin", "verifications");
-  screenshots.push(["Admin verification", await saveShot(client, "17-admin-verification")]);
+  screenshots.push(["Admin verification", await saveShot(client, "14-admin-verification")]);
 
   log("admin payments");
   await nav(client, "admin", "payments");
-  screenshots.push(["Admin payments", await saveShot(client, "18-admin-payments")]);
+  screenshots.push(["Admin payments", await saveShot(client, "15-admin-payments")]);
   checks.adminPaymentsExport = await downloadFrom(client, '[data-action="export-csv"][data-export="admin-payments"]');
+  checks.adminNoSplitCopy = !(await evaluate(client, `document.body.textContent.includes("40" + "%") || document.body.textContent.includes("60" + "%") || document.body.textContent.includes(["40", "60"].join(" / "))`));
 
   log("admin reports");
   await nav(client, "admin", "reports");
-  screenshots.push(["Admin reports", await saveShot(client, "19-admin-reports")]);
+  screenshots.push(["Admin reports", await saveShot(client, "16-admin-reports")]);
 
   log("admin settings");
   await nav(client, "admin", "settings");
-  screenshots.push(["Admin settings", await saveShot(client, "20-admin-settings")]);
+  screenshots.push(["Admin settings", await saveShot(client, "17-admin-settings")]);
   checks.dataConnectionText = (await evaluate(client, `document.body.textContent.includes("Live data")`))
     ? "Live data"
     : "Not live";

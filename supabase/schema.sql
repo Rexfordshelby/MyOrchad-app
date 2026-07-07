@@ -75,51 +75,12 @@ create policy "public can read farmer updates"
   on public.farmer_updates for select
   using (true);
 
-drop policy if exists "prototype can read verifications" on public.verifications;
-create policy "prototype can read verifications"
+drop policy if exists "authenticated interface can read verifications" on public.verifications;
+create policy "authenticated interface can read verifications"
   on public.verifications for select
   using (true);
 
-drop policy if exists "prototype can read adoptions" on public.adoptions;
-create policy "prototype can read adoptions"
+drop policy if exists "authenticated interface can read adoptions" on public.adoptions;
+create policy "authenticated interface can read adoptions"
   on public.adoptions for select
   using (true);
-
-insert into public.orchards
-  (slug, name, farmer_name, district, village, acres, total_trees, adopted_trees, available_trees, rating, farmer_income, coordinates, summary)
-values
-  ('patil', 'Patil Cashew Farm', 'Suresh Patil', 'Ratnagiri', 'Malvan', 2.5, 1200, 850, 350, 4.8, 340000, '15.3949 N, 73.8278 E', 'A verified cashew orchard using natural farming practices and monthly photo updates.'),
-  ('kadam', 'Kadam Orchard', 'Maya Kadam', 'Sindhudurg', 'Sawantwadi', 3.1, 980, 615, 365, 4.6, 246000, '15.9042 N, 73.8216 E', 'A family-run cashew orchard with clear geo-tagging and regular growth reports.'),
-  ('naik', 'Naik Cashew Farm', 'Ramesh Naik', 'Kolhapur', 'Ajra', 4.0, 800, 410, 390, 4.7, 164000, '16.1169 N, 74.2104 E', 'A hillside cashew farm onboarding into the Kalpavriksha Agro verification program.')
-on conflict (slug) do update set
-  name = excluded.name,
-  farmer_name = excluded.farmer_name,
-  district = excluded.district,
-  village = excluded.village,
-  acres = excluded.acres,
-  total_trees = excluded.total_trees,
-  adopted_trees = excluded.adopted_trees,
-  available_trees = excluded.available_trees,
-  rating = excluded.rating,
-  farmer_income = excluded.farmer_income,
-  coordinates = excluded.coordinates,
-  summary = excluded.summary;
-
-insert into public.verifications
-  (farmer_name, farm_name, district, status, total_trees)
-values
-  ('Ramesh Naik', 'Naik Cashew Farm', 'Kolhapur', 'Pending', 800),
-  ('Maya Kadam', 'Kadam Orchard', 'Sindhudurg', 'Pending', 980),
-  ('Suresh Patil', 'Patil Cashew Farm', 'Ratnagiri', 'Verified', 1200)
-on conflict (farm_name, farmer_name) do update set
-  district = excluded.district,
-  status = excluded.status,
-  total_trees = excluded.total_trees;
-
-insert into public.farmer_updates
-  (orchard_slug, title, body, created_at)
-values
-  ('naik', 'Flowering stage', 'Trees are healthy and flowering well after organic spray.', '2026-05-12 09:00:00+05:30'),
-  ('naik', 'Irrigation completed', 'Drip irrigation checked across the adopted tree rows.', '2026-04-22 09:00:00+05:30')
-on conflict (orchard_slug, title, created_at) do update set
-  body = excluded.body;

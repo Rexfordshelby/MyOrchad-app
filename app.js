@@ -8,6 +8,10 @@ const assets = {
   revenue: "assets/revenue.png",
 };
 
+const programConfig = {
+  adoptionAmount: 5000,
+};
+
 const supabaseConfig = {
   url: "https://kbrpjigxqchldjnjyuem.supabase.co",
   publishableKey: "sb_publishable_MS2gZ9VOqi5Vs2-KfXpH3g_Mc8uKc9i",
@@ -18,10 +22,10 @@ const supabaseConfig = {
 
 const supabaseBridge = {
   client: null,
-  status: "mock",
-  dataSource: "Mock data",
+  status: "loading",
+  dataSource: "Connecting",
   lastSync: "",
-  message: "Mock data active until Supabase tables and RLS policies are ready.",
+  message: "Connecting to secure MyOrchard records.",
   init() {
     const supabaseGlobal = typeof supabase !== "undefined" ? supabase : null;
     const supabaseFactory = window.supabase?.createClient || globalThis.supabase?.createClient || supabaseGlobal?.createClient;
@@ -35,8 +39,8 @@ const supabaseBridge = {
       },
     });
     this.status = "connected";
-    this.dataSource = "Connected, mock fallback";
-    this.message = "Supabase client ready. Live tables will replace mock records when readable rows exist.";
+    this.dataSource = "Supabase ready";
+    this.message = "Reading verified orchard records from Supabase.";
   },
   async sync() {
     if (!this.client) return false;
@@ -49,17 +53,25 @@ const supabaseBridge = {
 
     let loaded = false;
 
-    if (orchardRows?.length) {
-      orchards.splice(0, orchards.length, ...orchardRows.map(mapSupabaseOrchard));
+    const liveOrchardRows = orchardRows?.filter((row) => !seedRecordIds.has(String(firstValue(row, ["slug", "id", "orchard_id"], "")).toLowerCase())) || [];
+    const liveVerificationRows =
+      verificationRows?.filter((row) => {
+        const id = String(firstValue(row, ["slug", "farm_slug", "orchard_id"], "")).toLowerCase();
+        const farm = String(firstValue(row, ["farm", "farm_name", "orchard_name"], "")).toLowerCase();
+        return !seedRecordIds.has(id) && !seedFarmNames.has(farm);
+      }) || [];
+
+    if (liveOrchardRows.length) {
+      orchards.splice(0, orchards.length, ...liveOrchardRows.map(mapSupabaseOrchard));
       loaded = true;
     }
 
-    if (verificationRows?.length) {
-      state.verifications = verificationRows.map(mapSupabaseVerification);
+    if (liveVerificationRows.length) {
+      state.verifications = liveVerificationRows.map(mapSupabaseVerification);
       loaded = true;
     }
 
-    if (updateRows?.length) {
+    if (updateRows?.length && liveOrchardRows.length) {
       state.farmerUpdates = updateRows.map(mapSupabaseUpdate);
       loaded = true;
     }
@@ -74,11 +86,11 @@ const supabaseBridge = {
     if (loaded) {
       this.status = "live";
       this.dataSource = "Supabase live data";
-      this.message = "Live Supabase rows loaded into the UI with mock fallback still available.";
+      this.message = "Live Supabase rows are powering this interface.";
     } else {
-      this.status = "connected";
-      this.dataSource = "Connected, mock fallback";
-      this.message = "Supabase connected. Mock data is shown until the expected tables have readable rows.";
+      this.status = "empty";
+      this.dataSource = "No published rows";
+      this.message = "Supabase is connected, but no orchard records are published yet.";
     }
 
     return loaded;
@@ -98,82 +110,11 @@ window.MyOrchardSupabase = supabaseBridge;
 
 const districts = ["Sindhudurg", "Ratnagiri", "Kolhapur"];
 
-const mockImages = [assets.trust, assets.supporter, assets.farmer, assets.revenue];
+const fallbackImages = [assets.trust, assets.supporter, assets.farmer, assets.revenue];
+const seedRecordIds = new Set(["patil", "kadam", "naik"]);
+const seedFarmNames = new Set(["patil cashew farm", "kadam orchard", "naik cashew farm"]);
 
-let orchards = [
-  {
-    id: "patil",
-    name: "Patil Cashew Farm",
-    farmer: "Suresh Patil",
-    district: "Ratnagiri",
-    village: "Malvan",
-    state: "Maharashtra",
-    acres: "2.5",
-    totalTrees: 1200,
-    adopted: 850,
-    available: 350,
-    rating: "4.8",
-    income: 340000,
-    image: assets.trust,
-    coordinates: "15.3949 N, 73.8278 E",
-    summary:
-      "A verified cashew orchard using natural farming practices and monthly photo updates.",
-  },
-  {
-    id: "kadam",
-    name: "Kadam Orchard",
-    farmer: "Maya Kadam",
-    district: "Sindhudurg",
-    village: "Sawantwadi",
-    state: "Maharashtra",
-    acres: "3.1",
-    totalTrees: 980,
-    adopted: 615,
-    available: 365,
-    rating: "4.6",
-    income: 246000,
-    image: assets.supporter,
-    coordinates: "15.9042 N, 73.8216 E",
-    summary:
-      "A family-run cashew orchard with clear geo-tagging and regular growth reports.",
-  },
-  {
-    id: "naik",
-    name: "Naik Cashew Farm",
-    farmer: "Ramesh Naik",
-    district: "Kolhapur",
-    village: "Ajra",
-    state: "Maharashtra",
-    acres: "4.0",
-    totalTrees: 800,
-    adopted: 410,
-    available: 390,
-    rating: "4.7",
-    income: 164000,
-    image: assets.farmer,
-    coordinates: "16.1169 N, 74.2104 E",
-    summary:
-      "A hillside cashew farm onboarding into the Kalpavriksha Agro verification program.",
-  },
-  {
-    id: "more",
-    name: "More Farm",
-    farmer: "Anil More",
-    district: "Ratnagiri",
-    village: "Dapoli",
-    state: "Maharashtra",
-    acres: "2.2",
-    totalTrees: 650,
-    adopted: 280,
-    available: 370,
-    rating: "4.5",
-    income: 112000,
-    image: assets.revenue,
-    coordinates: "17.7586 N, 73.1854 E",
-    summary:
-      "A compact orchard focused on transparent farmer payouts and harvest reporting.",
-  },
-];
+let orchards = [];
 
 const nav = {
   farmer: [
@@ -225,70 +166,34 @@ const state = {
   adoptionComplete: false,
   updateDraft: "",
   supporterProfile: {
-    name: "Anand Deshmukh",
-    handle: "@anand.grows",
-    mobile: "98200 11023",
-    email: "anand@example.com",
-    location: "Mumbai, Maharashtra",
-    bio: "Supporting farmer-led climate action through verified cashew tree adoption.",
+    name: "Supporter",
+    handle: "@myorchard",
+    mobile: "Add mobile number",
+    email: "Add email",
+    location: "Add location",
+    bio: "Complete your profile to keep certificates, adopted trees, and farm updates in one place.",
   },
   farmerProfile: {
-    handle: "@naikcashewfarm",
-    location: "Sawantwadi, Sindhudurg",
-    bio: "Family-run cashew orchard focused on natural practices, transparent updates, and stable farmer income.",
+    handle: "@yourorchard",
+    location: "Add village and district",
+    bio: "Complete onboarding to build a verified public profile for supporters.",
   },
   farmerForm: {
-    fullName: "Ramesh Naik",
-    mobile: "98765 43210",
-    aadhaar: "XXXX-XXXX-2417",
+    fullName: "",
+    mobile: "",
+    aadhaar: "",
     district: "Sindhudurg",
-    village: "Sawantwadi",
-    orchardName: "Naik Cashew Farm",
-    acres: "3.8",
-    totalTrees: "900",
+    village: "",
+    orchardName: "",
+    acres: "",
+    totalTrees: "",
     crop: "Cashew",
     ownership: "Owned",
-    bank: "Bank of Maharashtra",
-    account: "XXXX 4521",
+    bank: "",
+    account: "",
   },
-  farmerUpdates: [
-    {
-      title: "Flowering stage",
-      date: "12 May 2026",
-      body: "Trees are healthy and flowering well after organic spray.",
-    },
-    {
-      title: "Irrigation completed",
-      date: "22 Apr 2026",
-      body: "Drip irrigation checked across the adopted tree rows.",
-    },
-  ],
-  verifications: [
-    {
-      id: "v1",
-      farmer: "Ramesh Naik",
-      farm: "Naik Cashew Farm",
-      district: "Kolhapur",
-      status: "Pending",
-      trees: 800,
-    },
-    {
-      id: "v2",
-      farmer: "Maya Kadam",
-      farm: "Kadam Orchard",
-      district: "Sindhudurg",
-      status: "Pending",
-      trees: 980,
-    },
-    {
-      id: "v3",
-      farmer: "Suresh Patil",
-      farm: "Patil Cashew Farm",
-      district: "Ratnagiri",
-      status: "Verified",
-      trees: 1200,
-    },
-  ],
+  farmerUpdates: [],
+  verifications: [],
 };
 
 const app = document.querySelector("#app");
@@ -340,8 +245,8 @@ function mapSupabaseOrchard(row, index) {
     adopted,
     available,
     rating: String(firstValue(row, ["rating"], "4.7")),
-    income: numberValue(row, ["income", "farmer_income"], adopted * 2000),
-    image: String(firstValue(row, ["image", "image_url", "photo_url"], mockImages[index % mockImages.length])),
+    income: numberValue(row, ["income", "farmer_income"], 0),
+    image: String(firstValue(row, ["image", "image_url", "photo_url"], fallbackImages[index % fallbackImages.length])),
     coordinates: String(firstValue(row, ["coordinates", "geo", "lat_lng"], "15.9042 N, 73.8216 E")),
     summary: String(firstValue(row, ["summary", "description"], "A verified orchard connected through the MyOrchard program.")),
   };
@@ -367,7 +272,59 @@ function mapSupabaseUpdate(row) {
 }
 
 function selectedFarm() {
-  return orchards.find((farm) => farm.id === state.selectedFarmId) || orchards[0];
+  return orchards.find((farm) => farm.id === state.selectedFarmId) || orchards[0] || null;
+}
+
+function orchardTotals() {
+  return orchards.reduce(
+    (totals, farm) => {
+      totals.trees += Number(farm.totalTrees) || 0;
+      totals.adopted += Number(farm.adopted) || 0;
+      totals.available += Number(farm.available) || 0;
+      totals.income += Number(farm.income) || 0;
+      return totals;
+    },
+    { trees: 0, adopted: 0, available: 0, income: 0 },
+  );
+}
+
+function farmerTotalTrees() {
+  return Number(state.farmerForm.totalTrees) || 0;
+}
+
+function farmerDisplayName() {
+  return state.farmerForm.fullName.trim() || "farmer";
+}
+
+function farmerOrchardName() {
+  return state.farmerForm.orchardName.trim() || "Your orchard";
+}
+
+function supporterDisplayName() {
+  return state.supporterProfile.name.trim() && state.supporterProfile.name !== "Supporter" ? state.supporterProfile.name : "MyOrchard supporter";
+}
+
+function renderEmptyState(title, body, iconName = "leaf") {
+  return `<div class="empty-state">${icon(iconName)}<h2>${title}</h2><p class="muted">${body}</p></div>`;
+}
+
+function farmerSubmissionReady() {
+  return ["fullName", "mobile", "village", "orchardName", "acres", "totalTrees", "bank", "account"].every((field) =>
+    String(state.farmerForm[field] || "").trim(),
+  );
+}
+
+function upsertFarmerVerification() {
+  if (!farmerSubmissionReady()) return;
+  const record = {
+    id: `local-${state.farmerForm.orchardName.trim().toLowerCase().replaceAll(/\s+/g, "-")}`,
+    farmer: state.farmerForm.fullName.trim(),
+    farm: state.farmerForm.orchardName.trim(),
+    district: state.farmerForm.district,
+    status: "Pending",
+    trees: farmerTotalTrees(),
+  };
+  state.verifications = [record, ...state.verifications.filter((item) => item.id !== record.id)];
 }
 
 function render(preserveFocus = false) {
@@ -446,17 +403,17 @@ function renderWelcome() {
           <span class="eyebrow">${icon("leaf")} Connecting people with orchards</span>
           <h1>MyOrchard app</h1>
           <p class="welcome-copy">
-            Tree adoption, farmer verification, orchard updates, secure payments, and ecosystem management in one usable flow.
+            A verified orchard network where farmers publish trusted farm profiles and supporters follow real tree progress.
           </p>
         </div>
         <div class="context-strip">
           <div class="context-item">
-            <b>Rs. 5,000</b>
-            <span>per cashew tree adoption</span>
+            <b>Verified farms</b>
+            <span>KYC, orchard details, and location checks before listing</span>
           </div>
           <div class="context-item">
-            <b>40 / 60</b>
-            <span>farmer and ecosystem revenue split</span>
+            <b>Live updates</b>
+            <span>Farmers share photos, notes, and progress in one place</span>
           </div>
           <div class="context-item">
             <b>3 districts</b>
@@ -464,8 +421,8 @@ function renderWelcome() {
           </div>
         </div>
         <div class="role-grid">
-          ${renderRoleCard("farmer", "Farmer", "tractor", "Register a farm, upload KYC, add trees, publish updates, and track earnings.")}
-          ${renderRoleCard("supporter", "Supporter", "heart-handshake", "Browse verified orchards, adopt trees, pay, and receive certificates.")}
+          ${renderRoleCard("farmer", "Farmer", "tractor", "Register your orchard, submit verification details, and keep supporters updated.")}
+          ${renderRoleCard("supporter", "Supporter", "heart-handshake", "Browse verified orchards, choose trees, and receive progress updates.")}
         </div>
         <div class="team-access">
           <button class="team-link" type="button" data-action="toggle-team-access">
@@ -506,11 +463,11 @@ function renderWelcomePreview() {
       <div class="phone-card-stack">
         <div class="phone-card">
           <span class="metric-icon">${icon("tree-pine")}</span>
-          <div><strong>350</strong><span>trees open for adoption</span></div>
+          <div><strong>Verified</strong><span>orchard profiles</span></div>
         </div>
         <div class="phone-card">
-          <span class="metric-icon">${icon("wallet")}</span>
-          <div><strong>40%</strong><span>direct farmer support</span></div>
+          <span class="metric-icon">${icon("camera")}</span>
+          <div><strong>Updates</strong><span>from the farm</span></div>
         </div>
       </div>
       <button class="btn" type="button" data-action="choose-role" data-role="supporter">${icon("heart-handshake")} Explore orchards</button>
@@ -518,7 +475,7 @@ function renderWelcomePreview() {
     <div class="trust-stack" aria-hidden="true">
       <div class="trust-card"><b>Verified farms</b><span>KYC, geo-tagging, tree count</span></div>
       <div class="trust-card"><b>Monthly updates</b><span>Photos, harvest notes, progress</span></div>
-      <div class="trust-card"><b>Clear payout</b><span>Rs. 2,000 farmer share per tree</span></div>
+      <div class="trust-card"><b>Clear records</b><span>Certificates, receipts, and activity history</span></div>
     </div>
   `;
 }
@@ -570,8 +527,8 @@ function renderRoleShell(role) {
         </div>
         <div class="rail-label">Program</div>
         <div class="card">
-          <span class="tag gold">${icon("banknote")} Adoption fee</span>
-          <p class="muted" style="margin-top:10px">Rs. 5,000 per tree with transparent farmer and ecosystem allocation.</p>
+          <span class="tag gold">${icon("shield-check")} Trust workflow</span>
+          <p class="muted" style="margin-top:10px">Verified orchard profiles, supporter updates, and secure records in one place.</p>
         </div>
       </aside>
       <main class="main">${content}</main>
@@ -774,43 +731,44 @@ function renderFarmerStep() {
     <div class="grid-2">
       <div class="card">
         <span class="label">Farmer</span>
-        <h3>${escapeHtml(state.farmerForm.fullName)}</h3>
-        <p class="muted">${escapeHtml(state.farmerForm.village)}, ${escapeHtml(state.farmerForm.district)}</p>
+        <h3>${escapeHtml(state.farmerForm.fullName || "Name pending")}</h3>
+        <p class="muted">${escapeHtml(state.farmerForm.village || "Village pending")}, ${escapeHtml(state.farmerForm.district)}</p>
       </div>
       <div class="card">
         <span class="label">Orchard</span>
-        <h3>${escapeHtml(state.farmerForm.orchardName)}</h3>
-        <p class="muted">${escapeHtml(state.farmerForm.totalTrees)} ${escapeHtml(state.farmerForm.crop)} trees across ${escapeHtml(state.farmerForm.acres)} acres</p>
+        <h3>${escapeHtml(farmerOrchardName())}</h3>
+        <p class="muted">${escapeHtml(state.farmerForm.totalTrees || "0")} ${escapeHtml(state.farmerForm.crop)} trees across ${escapeHtml(state.farmerForm.acres || "0")} acres</p>
       </div>
     </div>
   `;
 }
 
 function renderFarmerDashboard() {
-  const name = escapeHtml(state.farmerForm.fullName);
+  const name = escapeHtml(farmerDisplayName());
+  const totalTrees = farmerTotalTrees();
   return `
     ${renderPageTitle(
       `Hello, ${name}`,
-      "Track orchard adoption, income, pending trees, and field activity.",
+      "Track orchard verification, listed trees, supporter interest, and field activity.",
       `<button class="btn" type="button" data-action="nav" data-role="farmer" data-tab="updates">${icon("upload")} Upload update</button>`,
     )}
     <div class="dashboard-grid">
-      ${metric("Total trees", state.farmerForm.totalTrees, "tree-pine", "Registered for adoption")}
-      ${metric("Adopted trees", "850", "heart-handshake", "Supporters matched")}
-      ${metric("Pending adoption", "400", "clock", "Available for supporters")}
-      ${metric("Total earned", money(340000), "wallet", "Farmer share received")}
+      ${metric("Total trees", totalTrees, "tree-pine", "Submitted for listing")}
+      ${metric("Adopted trees", "0", "heart-handshake", "Updates after first adoption")}
+      ${metric("Available trees", totalTrees, "clock", "Ready after verification")}
+      ${metric("Account status", state.farmerSubmitted ? "Submitted" : "Draft", "shield-check", "Verification workflow")}
     </div>
     <div class="content-grid">
       <section>
         <div class="visual-band">
           <div>
             <span class="tag">${icon("shield-check")} Verification active</span>
-            <h2>${escapeHtml(state.farmerForm.orchardName)}</h2>
-            <p>Cashew orchard in ${escapeHtml(state.farmerForm.district)} with transparent adoption tracking and monthly growth reporting.</p>
+            <h2>${escapeHtml(farmerOrchardName())}</h2>
+            <p>${escapeHtml(state.farmerForm.crop)} orchard in ${escapeHtml(state.farmerForm.district)} with verification tracking and monthly growth reporting.</p>
             <div class="meta-row">
-              <span class="tag gold">${escapeHtml(state.farmerForm.acres)} acres</span>
+              <span class="tag gold">${escapeHtml(state.farmerForm.acres || "0")} acres</span>
               <span class="tag">${escapeHtml(state.farmerForm.crop)}</span>
-              <span class="tag clay">40% farmer payout</span>
+              <span class="tag clay">${state.farmerSubmitted ? "Submitted for review" : "Draft profile"}</span>
             </div>
           </div>
           <img src="${assets.trust}" alt="Verified orchard trust view" />
@@ -818,29 +776,13 @@ function renderFarmerDashboard() {
         <div class="section" style="margin-top:18px">
           <div class="section-title"><h2>Recent adoptions</h2><button class="btn secondary" type="button" data-action="export-csv" data-export="farmer-adoptions">${icon("download")} Export</button></div>
           <div class="list">
-            ${[
-              ["Rahul Mehta", "10 trees", "10 May 2026", 20000],
-              ["Priya Sharma", "5 trees", "08 May 2026", 10000],
-              ["Anand Deshmukh", "5 trees", "15 Apr 2026", 10000],
-            ]
-              .map(
-                ([person, trees, date, payout]) => `
-                  <div class="list-card compact">
-                    <div>
-                      <h3>${person}</h3>
-                      <p>${trees} adopted on ${date}</p>
-                    </div>
-                    <span class="pill">${money(payout)}</span>
-                  </div>
-                `,
-              )
-              .join("")}
+            ${renderEmptyState("No adoptions yet", "Adoption records will appear here after your orchard is approved and supporters adopt trees.", "heart-handshake")}
           </div>
         </div>
       </section>
       <aside class="card">
         <div class="section-title"><h2>Activity</h2>${icon("bell")}</div>
-        ${renderTimeline(state.farmerUpdates)}
+        ${state.farmerUpdates.length ? renderTimeline(state.farmerUpdates) : renderEmptyState("No updates yet", "Publish your first field update after submitting the orchard profile.", "camera")}
       </aside>
     </div>
   `;
@@ -867,13 +809,14 @@ function renderFarmerUpdates() {
       </section>
       <aside class="card">
         <div class="section-title"><h2>Published updates</h2>${icon("history")}</div>
-        ${renderTimeline(state.farmerUpdates)}
+        ${state.farmerUpdates.length ? renderTimeline(state.farmerUpdates) : renderEmptyState("No published updates", "Your field notes will appear here after you publish them.", "history")}
       </aside>
     </div>
   `;
 }
 
 function renderFarmerProfile() {
+  const location = `${state.farmerForm.village || "Village pending"}, ${state.farmerForm.district}`;
   return `
     ${renderPageTitle("Profile", "Your public farmer identity, trust status, and payout readiness.")}
     <section class="profile-shell">
@@ -884,11 +827,11 @@ function renderFarmerProfile() {
         <div class="avatar xl">${icon("tractor")}</div>
         <div>
           <div class="meta-row">
-            <h2>${escapeHtml(state.farmerForm.fullName)}</h2>
-            <span class="pill">${icon("shield-check")} Verified farmer</span>
+            <h2>${escapeHtml(farmerDisplayName())}</h2>
+            <span class="pill">${icon("shield-check")} ${state.farmerSubmitted ? "Submitted farmer" : "Verification draft"}</span>
           </div>
-          <p class="muted">${state.farmerProfile.handle} - ${state.farmerProfile.location}</p>
-          <p>${state.farmerProfile.bio}</p>
+          <p class="muted">${state.farmerProfile.handle} - ${escapeHtml(location)}</p>
+          <p>${state.farmerSubmitted ? "Your orchard profile is ready for verification review." : state.farmerProfile.bio}</p>
         </div>
         <div class="profile-actions">
           <button class="btn secondary" type="button">${icon("edit-3")} Edit</button>
@@ -896,27 +839,27 @@ function renderFarmerProfile() {
         </div>
       </div>
       <div class="profile-stats">
-        <div><strong>${escapeHtml(state.farmerForm.totalTrees)}</strong><span>Trees</span></div>
-        <div><strong>850</strong><span>Adopted</span></div>
-        <div><strong>${money(340000)}</strong><span>Earned</span></div>
-        <div><strong>98%</strong><span>Trust score</span></div>
+        <div><strong>${escapeHtml(state.farmerForm.totalTrees || "0")}</strong><span>Trees</span></div>
+        <div><strong>0</strong><span>Adopted</span></div>
+        <div><strong>${state.farmerSubmitted ? "Review" : "Draft"}</strong><span>Status</span></div>
+        <div><strong>${state.farmerUpdates.length}</strong><span>Updates</span></div>
       </div>
     </section>
     <div class="profile-grid">
       <section class="card">
         <div class="section-title"><h2>Account</h2><span class="tag">${icon("user")} Private</span></div>
         <div class="info-list">
-          <div><span>Mobile</span><strong>${escapeHtml(state.farmerForm.mobile)}</strong></div>
-          <div><span>Bank</span><strong>${escapeHtml(state.farmerForm.bank)}</strong></div>
-          <div><span>Account</span><strong>${escapeHtml(state.farmerForm.account)}</strong></div>
+          <div><span>Mobile</span><strong>${escapeHtml(state.farmerForm.mobile || "Pending")}</strong></div>
+          <div><span>Bank</span><strong>${escapeHtml(state.farmerForm.bank || "Pending")}</strong></div>
+          <div><span>Account</span><strong>${escapeHtml(state.farmerForm.account || "Pending")}</strong></div>
         </div>
       </section>
       <section class="card">
         <div class="section-title"><h2>Orchard</h2><span class="tag gold">${icon("tree-pine")} ${escapeHtml(state.farmerForm.crop)}</span></div>
         <div class="info-list">
-          <div><span>Name</span><strong>${escapeHtml(state.farmerForm.orchardName)}</strong></div>
-          <div><span>Location</span><strong>${escapeHtml(state.farmerForm.village)}, ${escapeHtml(state.farmerForm.district)}</strong></div>
-          <div><span>Land</span><strong>${escapeHtml(state.farmerForm.acres)} acres</strong></div>
+          <div><span>Name</span><strong>${escapeHtml(farmerOrchardName())}</strong></div>
+          <div><span>Location</span><strong>${escapeHtml(location)}</strong></div>
+          <div><span>Land</span><strong>${escapeHtml(state.farmerForm.acres || "0")} acres</strong></div>
         </div>
       </section>
       <section class="card">
@@ -928,17 +871,18 @@ function renderFarmerProfile() {
 }
 
 function renderSupporterHome() {
+  const totals = orchardTotals();
   return `
     ${renderPageTitle(
-      "Welcome, Anand",
-      "Browse verified cashew orchards and support farmers through transparent tree adoption.",
+      "Welcome",
+      "Browse verified cashew orchards and stay connected to real farm progress.",
       `<button class="btn" type="button" data-action="nav" data-role="supporter" data-tab="orchards">${icon("search")} Find orchards</button>`,
     )}
     <div class="dashboard-grid">
-      ${metric("Trees adopted", "15", "tree-pine", "Across verified farms")}
-      ${metric("Farmers supported", "5", "users", "Sindhudurg and Ratnagiri")}
-      ${metric("CO2 offset", "225 kg", "leaf", "Estimated impact")}
-      ${metric("Certificates", "3", "badge-check", "Ready to download")}
+      ${metric("Published farms", orchards.length, "tree-pine", "Verified orchard profiles")}
+      ${metric("Available trees", totals.available, "leaf", "Open for adoption")}
+      ${metric("Districts", new Set(orchards.map((farm) => farm.district)).size, "map-pin", "Launch coverage")}
+      ${metric("Certificates", state.adoptionComplete ? "1" : "0", "badge-check", "After adoption")}
     </div>
     <div class="content-grid">
       <section>
@@ -946,7 +890,7 @@ function renderSupporterHome() {
           <div>
             <span class="tag gold">${icon("heart-handshake")} Supporter journey</span>
             <h2>Adopt cashew trees from real farmer orchards</h2>
-            <p>Every farm profile includes verification status, tree availability, location, adoption amount, and progress updates.</p>
+            <p>Every farm profile includes verification status, tree availability, location, and progress updates before checkout.</p>
             <div class="meta-row">
               ${districts.map((district) => `<button class="chip" type="button" data-action="district-chip" data-district="${district}">${district}</button>`).join("")}
             </div>
@@ -955,16 +899,16 @@ function renderSupporterHome() {
         </div>
         <div class="section" style="margin-top:18px">
           <div class="section-title"><h2>Recommended orchards</h2><button class="btn secondary" type="button" data-action="nav" data-role="supporter" data-tab="orchards">${icon("filter")} View all</button></div>
-          <div class="list">${orchards.slice(0, 3).map(renderOrchardCard).join("")}</div>
+          <div class="list">${orchards.length ? orchards.slice(0, 3).map(renderOrchardCard).join("") : renderEmptyState("No orchards published yet", "Verified farms will appear here as soon as they are approved by the team.", "tree-pine")}</div>
         </div>
       </section>
       <aside class="card">
         <div class="section-title"><h2>Impact updates</h2>${icon("bar-chart-3")}</div>
-        ${renderTimeline([
-          { title: "New photo from Patil Cashew Farm", date: "12 May 2026", body: "Your adopted trees are healthy and flowering." },
-          { title: "Certificate issued", date: "15 Apr 2026", body: "Tree adoption certificate is ready for download." },
-          { title: "Farmer payout processed", date: "01 Apr 2026", body: "40% farmer share was marked as released." },
-        ])}
+        ${state.adoptionComplete
+          ? renderTimeline([
+              { title: "Adoption confirmed", date: "06 Jul 2026", body: "Your certificate is ready and the first farm update will follow." },
+            ])
+          : renderEmptyState("No impact updates yet", "Adopt from a verified farm to start receiving progress notes and certificates.", "bell")}
       </aside>
     </div>
   `;
@@ -996,7 +940,7 @@ function renderOrchardListing() {
       <button class="btn secondary" type="button" data-action="clear-filters">${icon("rotate-ccw")} Reset</button>
     </div>
     <div class="list">
-      ${filtered.length ? filtered.map(renderOrchardCard).join("") : `<div class="empty-state">${icon("search-x")}<h2>No orchards found</h2><p class="muted">Try another district or search term.</p></div>`}
+      ${filtered.length ? filtered.map(renderOrchardCard).join("") : renderEmptyState("No orchards published yet", "Verified farms will appear here after the team approves orchard records in Supabase.", "tree-pine")}
     </div>
   `;
 }
@@ -1014,7 +958,7 @@ function renderOrchardCard(farm) {
         <div class="mini-row">
           <span class="tag gold">${farm.available} trees available</span>
           <span class="tag">${farm.rating} rating</span>
-          <span class="tag clay">Rs. 5,000 per tree</span>
+          <span class="tag clay">Verified listing</span>
         </div>
       </div>
       <button class="btn secondary" type="button" data-action="open-farm" data-farm="${farm.id}">
@@ -1026,6 +970,16 @@ function renderOrchardCard(farm) {
 
 function renderFarmDetail() {
   const farm = selectedFarm();
+  if (!farm) {
+    return `
+      ${renderPageTitle(
+        "Farm details",
+        "Verified farms will appear here after the team publishes orchard records.",
+        `<button class="btn secondary" type="button" data-action="nav" data-role="supporter" data-tab="orchards">${icon("arrow-left")} Back to orchards</button>`,
+      )}
+      ${renderEmptyState("No farm selected", "Choose a verified orchard from the listing once farms are available.", "tree-pine")}
+    `;
+  }
   return `
     ${renderPageTitle(
       farm.name,
@@ -1063,10 +1017,18 @@ function renderFarmDetail() {
 
 function renderAdoptionPayment() {
   const farm = selectedFarm();
-  const unit = 5000;
+  if (!farm) {
+    return `
+      ${renderPageTitle(
+        "Adopt a tree",
+        "Choose a verified farm before starting checkout.",
+        `<button class="btn secondary" type="button" data-action="nav" data-role="supporter" data-tab="orchards">${icon("arrow-left")} Browse orchards</button>`,
+      )}
+      ${renderEmptyState("No farm selected", "Adoption checkout will be available after selecting a published orchard.", "heart-handshake")}
+    `;
+  }
+  const unit = programConfig.adoptionAmount;
   const total = unit * state.treeCount;
-  const farmerShare = total * 0.4;
-  const companyShare = total * 0.6;
 
   return `
     ${renderPageTitle(
@@ -1095,9 +1057,9 @@ function renderAdoptionPayment() {
             </div>
           </div>
           <div class="payment-breakdown">
-            <div class="breakdown-row"><span>Adoption amount</span><strong>${money(total)}</strong></div>
-            <div class="breakdown-row"><span>40% direct farmer share</span><strong>${money(farmerShare)}</strong></div>
-            <div class="breakdown-row"><span>60% Kalpavriksha ecosystem</span><strong>${money(companyShare)}</strong></div>
+            <div class="breakdown-row"><span>Adoption amount per tree</span><strong>${money(unit)}</strong></div>
+            <div class="breakdown-row"><span>Selected trees</span><strong>${state.treeCount}</strong></div>
+            <div class="breakdown-row"><span>Receipt and certificate</span><strong>Included</strong></div>
             <div class="breakdown-row"><span>Total</span><strong>${money(total)}</strong></div>
           </div>
         </div>
@@ -1116,11 +1078,11 @@ function renderAdoptionPayment() {
         <div class="grid-2" style="margin-top:18px">
           <label class="form-row">
             <span class="label">Supporter name</span>
-            <input class="input" value="Anand Deshmukh" />
+            <input class="input" placeholder="Enter supporter name" />
           </label>
           <label class="form-row">
             <span class="label">Mobile number</span>
-            <input class="input" value="98200 11023" />
+            <input class="input" placeholder="Enter mobile number" />
           </label>
         </div>
         <div class="card" style="margin-top:18px">
@@ -1137,6 +1099,12 @@ function renderAdoptionPayment() {
 
 function renderCertificateScreen() {
   const farm = selectedFarm();
+  if (!farm) {
+    return `
+      ${renderPageTitle("Adoption complete", "No selected farm found.", "")}
+      ${renderEmptyState("Certificate unavailable", "Please choose an orchard and complete checkout again.", "badge-check")}
+    `;
+  }
   return `
     ${renderPageTitle(
       "Adoption complete",
@@ -1148,7 +1116,7 @@ function renderCertificateScreen() {
         <span class="brand" style="justify-content:center">${renderBrand()}</span>
         <p class="eyebrow" style="justify-content:center;margin-top:18px">${icon("badge-check")} Certificate of tree adoption</p>
         <h1>This is to certify that</h1>
-        <span class="recipient">Anand Deshmukh</span>
+        <span class="recipient">${escapeHtml(supporterDisplayName())}</span>
         <p class="muted">has adopted</p>
         <h2>${state.treeCount} Cashew Tree${state.treeCount > 1 ? "s" : ""}</h2>
         <p class="muted">from ${farm.name}, ${farm.district}, Maharashtra</p>
@@ -1161,7 +1129,7 @@ function renderCertificateScreen() {
         <div class="section-title"><h2>Adoption updates</h2>${icon("bell")}</div>
         ${renderTimeline([
           { title: "Adoption confirmed", date: "06 Jul 2026", body: `${state.treeCount} tree adoption added to ${farm.name}.` },
-          { title: "Farmer payout queued", date: "06 Jul 2026", body: `${money(5000 * state.treeCount * 0.4)} marked for direct farmer support.` },
+          { title: "Receipt generated", date: "06 Jul 2026", body: `${money(programConfig.adoptionAmount * state.treeCount)} recorded for this adoption.` },
           { title: "First field update", date: "Expected 06 Aug 2026", body: "The farmer will share a monthly photo and growth note." },
         ])}
         <div class="page-actions" style="margin-top:18px">
@@ -1173,16 +1141,18 @@ function renderCertificateScreen() {
 }
 
 function renderSupporterUpdates() {
+  const farm = selectedFarm();
   return `
     ${renderPageTitle("Updates", "Track tree progress, farmer notes, and adoption milestones.")}
     <div class="content-grid">
       <section class="card">
-        <div class="section-title"><h2>Patil Cashew Farm</h2><span class="tag">5 trees</span></div>
-        ${renderTimeline([
-          { title: "Trees are flowering well", date: "12 May 2026", body: "The current weather has supported strong flowering." },
-          { title: "Organic spray completed", date: "12 Apr 2026", body: "Farmer completed pest-control spray using organic inputs." },
-          { title: "New growth observed", date: "12 Mar 2026", body: "New shoots appeared on the adopted tree row." },
-        ])}
+        <div class="section-title"><h2>${farm ? farm.name : "Farm updates"}</h2><span class="tag">${state.adoptionComplete ? `${state.treeCount} tree${state.treeCount > 1 ? "s" : ""}` : "No adoption yet"}</span></div>
+        ${state.adoptionComplete && farm
+          ? renderTimeline([
+              { title: "Adoption confirmed", date: "06 Jul 2026", body: `${state.treeCount} tree adoption added to ${farm.name}.` },
+              { title: "First field update", date: "Expected 06 Aug 2026", body: "The farmer will share a monthly photo and growth note." },
+            ])
+          : renderEmptyState("No updates yet", "Updates will begin after you adopt from a verified orchard.", "bell")}
       </section>
       <aside class="image-panel">
         <img src="${assets.trust}" alt="Farm transparency update" />
@@ -1214,10 +1184,10 @@ function renderSupporterProfile() {
         </div>
       </div>
       <div class="profile-stats">
-        <div><strong>15</strong><span>Trees</span></div>
-        <div><strong>5</strong><span>Farmers</span></div>
-        <div><strong>225kg</strong><span>CO2 offset</span></div>
-        <div><strong>3</strong><span>Certificates</span></div>
+        <div><strong>${state.adoptionComplete ? state.treeCount : 0}</strong><span>Trees</span></div>
+        <div><strong>${state.adoptionComplete ? 1 : 0}</strong><span>Farmers</span></div>
+        <div><strong>${state.adoptionComplete ? 1 : 0}</strong><span>Certificates</span></div>
+        <div><strong>${orchards.length}</strong><span>Farms live</span></div>
       </div>
     </section>
     <div class="profile-grid">
@@ -1232,13 +1202,14 @@ function renderSupporterProfile() {
       <section class="card">
         <div class="section-title"><h2>Adoption history</h2>${icon("badge-check")}</div>
         <div class="list">
-          <div class="list-card compact"><div><h3>Patil Cashew Farm</h3><p>5 trees - certificate ready</p></div><span class="pill">Active</span></div>
-          <div class="list-card compact"><div><h3>Kadam Orchard</h3><p>10 trees - monthly updates active</p></div><span class="pill gold">Updated</span></div>
+          ${state.adoptionComplete && selectedFarm()
+            ? `<div class="list-card compact"><div><h3>${selectedFarm().name}</h3><p>${state.treeCount} tree${state.treeCount > 1 ? "s" : ""} - certificate ready</p></div><span class="pill">Active</span></div>`
+            : renderEmptyState("No adoption history", "Adopt from a verified farm to build your certificate timeline.", "badge-check")}
         </div>
       </section>
       <section class="card">
         <div class="section-title"><h2>Saved farms</h2><button class="btn secondary" type="button" data-action="nav" data-role="supporter" data-tab="orchards">${icon("search")} Browse</button></div>
-        ${renderChecklist(["Patil Cashew Farm", "Kadam Orchard", "Naik Cashew Farm"])}
+        ${orchards.length ? renderChecklist(orchards.slice(0, 3).map((farm) => farm.name)) : renderEmptyState("No saved farms yet", "Browse verified farms and save the ones you want to revisit.", "search")}
       </section>
     </div>
   `;
@@ -1278,17 +1249,18 @@ function renderAdminContent() {
 }
 
 function renderAdminDashboard() {
+  const totals = orchardTotals();
   return `
     ${renderPageTitle(
       "Dashboard overview",
-      "Monitor farmer onboarding, orchard inventory, adoptions, and ecosystem revenue.",
+      "Monitor farmer onboarding, orchard inventory, adoptions, and operational health.",
       `<span class="pill gold">${icon("calendar")} Jul 2026</span>`,
     )}
     <div class="dashboard-grid">
-      ${metric("Total farmers", "2,450", "users", "+8.5% this month")}
-      ${metric("Total orchards", "320", "tree-pine", "+6.2% this month")}
-      ${metric("Total supporters", "5,680", "heart-handshake", "Active adopters")}
-      ${metric("Total revenue", money(6280000), "wallet", "Adoption collections")}
+      ${metric("Farmers in review", state.verifications.length, "users", "Verification records")}
+      ${metric("Published orchards", orchards.length, "tree-pine", "Live farm listings")}
+      ${metric("Trees available", totals.available, "leaf", "Open inventory")}
+      ${metric("Trees adopted", totals.adopted, "heart-handshake", "Across live farms")}
     </div>
     <div class="content-grid">
       <section class="card">
@@ -1309,7 +1281,7 @@ function renderAdminFarmers() {
   return `
     ${renderPageTitle("Farmers", "Review registered farmers, KYC state, and payout readiness.")}
     <div class="list">
-      ${state.verifications.map((item) => `
+      ${state.verifications.length ? state.verifications.map((item) => `
         <div class="list-card compact">
           <div>
             <h3>${item.farmer}</h3>
@@ -1317,7 +1289,7 @@ function renderAdminFarmers() {
           </div>
           <span class="pill ${item.status === "Pending" ? "clay" : ""}">${item.status}</span>
         </div>
-      `).join("")}
+      `).join("") : renderEmptyState("No farmer records", "New farmer verification records will appear here from Supabase.", "users")}
     </div>
   `;
 }
@@ -1325,51 +1297,53 @@ function renderAdminFarmers() {
 function renderAdminOrchards() {
   return `
     ${renderPageTitle("Orchards", "Manage registered farms, tree inventory, adoption availability, and locations.")}
-    <div class="list">${orchards.map(renderOrchardCard).join("")}</div>
+    <div class="list">${orchards.length ? orchards.map(renderOrchardCard).join("") : renderEmptyState("No orchards published", "Approved orchards will appear here after records are created in Supabase.", "tree-pine")}</div>
   `;
 }
 
 function renderAdminVerifications() {
   return `
     ${renderPageTitle("Farm verification", "Approve KYC and geo-tagged orchard submissions before public listing.")}
-    <div class="list">${state.verifications.map(renderQueueItem).join("")}</div>
+    <div class="list">${state.verifications.length ? state.verifications.map(renderQueueItem).join("") : renderEmptyState("No verification queue", "Farmer submissions will appear here when they are ready for review.", "shield-check")}</div>
   `;
 }
 
 function renderAdminPayments() {
+  const totals = orchardTotals();
+  const collected = totals.adopted * programConfig.adoptionAmount;
   return `
-    ${renderPageTitle("Payments", "Track adoption receipts and farmer payout allocations.")}
+    ${renderPageTitle("Payments", "Track adoption receipts, certificate readiness, and payout operations.")}
     <div class="dashboard-grid">
-      ${metric("Adoption amount", money(5000), "banknote", "Per tree")}
-      ${metric("Farmer share", money(2000), "wallet", "40% direct support")}
-      ${metric("Ecosystem share", money(3000), "building-2", "60% operations")}
-      ${metric("Pending payouts", money(126000), "clock", "Ready for release")}
+      ${metric("Collected", money(collected), "banknote", "From live adoption counts")}
+      ${metric("Adopted trees", totals.adopted, "tree-pine", "Across published farms")}
+      ${metric("Receipts", totals.adopted, "badge-check", "Certificate-linked records")}
+      ${metric("Pending review", state.verifications.filter((item) => item.status === "Pending").length, "clock", "Farmer records")}
     </div>
     <div class="card">
       <div class="section-title"><h2>Recent collections</h2><button class="btn secondary" type="button" data-action="export-csv" data-export="admin-payments">${icon("download")} Export CSV</button></div>
       <div class="list">
-        ${[
-          ["Anand Deshmukh", "Patil Cashew Farm", 5, 25000],
-          ["Priya Sharma", "Kadam Orchard", 3, 15000],
-          ["Rahul Mehta", "Naik Cashew Farm", 10, 50000],
-        ].map(([name, farm, trees, total]) => `
+        ${orchards.filter((farm) => Number(farm.adopted) > 0).length ? orchards.filter((farm) => Number(farm.adopted) > 0).map((farm) => {
+          const trees = Number(farm.adopted) || 0;
+          const total = trees * programConfig.adoptionAmount;
+          return `
           <div class="list-card compact">
-            <div><h3>${name}</h3><p>${farm} - ${trees} trees</p></div>
+            <div><h3>${farm.name}</h3><p>${farm.farmer} - ${trees} adopted trees</p></div>
             <span class="pill">${money(total)}</span>
           </div>
-        `).join("")}
+        `}).join("") : renderEmptyState("No payment records yet", "Collections will appear after supporters complete adoption checkout.", "wallet")}
       </div>
     </div>
   `;
 }
 
 function renderAdminReports() {
+  const totals = orchardTotals();
   return `
     ${renderPageTitle("Reports", "View adoption, farmer support, and sustainability indicators.")}
     <div class="grid-2">
       <div class="card">
-        <div class="section-title"><h2>Revenue logic</h2><span class="tag gold">40 / 60 split</span></div>
-        ${renderRevenueModel()}
+        <div class="section-title"><h2>Impact summary</h2><span class="tag gold">Live inventory</span></div>
+        ${renderImpactSummary(totals)}
       </div>
       <div class="card">
         <div class="section-title"><h2>Monthly trend</h2><span class="tag">Adoptions</span></div>
@@ -1385,10 +1359,10 @@ function renderAdminSettings() {
     <div class="grid-2">
       <div class="form-panel">
         <div class="form-grid">
-          <label class="form-row"><span class="label">Adoption amount per tree</span><input class="input" value="5000" /></label>
+          <label class="form-row"><span class="label">Adoption amount per tree</span><input class="input" value="${programConfig.adoptionAmount}" /></label>
           <label class="form-row"><span class="label">Crop focus</span><input class="input" value="Cashew" /></label>
-          <label class="form-row"><span class="label">Farmer share</span><input class="input" value="40%" /></label>
-          <label class="form-row"><span class="label">Company share</span><input class="input" value="60%" /></label>
+          <label class="form-row"><span class="label">Verification requirement</span><input class="input" value="KYC, location, tree count" /></label>
+          <label class="form-row"><span class="label">Update frequency</span><input class="input" value="Monthly" /></label>
           <label class="form-row full"><span class="label">Launch districts</span><input class="input" value="Sindhudurg, Ratnagiri, Kolhapur" /></label>
         </div>
         <div class="page-actions" style="margin-top:18px"><button class="btn">${icon("save")} Save settings</button></div>
@@ -1399,13 +1373,13 @@ function renderAdminSettings() {
 }
 
 function renderSupabaseStatus() {
-  const connected = supabaseBridge.status === "connected" || supabaseBridge.status === "live";
+  const connected = ["connected", "live", "empty"].includes(supabaseBridge.status);
   const live = supabaseBridge.status === "live";
   return `
     <section class="card">
       <div class="section-title">
         <h2>Data connection</h2>
-        <span class="tag ${connected ? "" : "clay"}">${icon(live ? "database" : connected ? "plug-zap" : "database-zap")} ${live ? "Live data" : connected ? "Supabase ready" : "Mock mode"}</span>
+        <span class="tag ${connected ? "" : "clay"}">${icon(live ? "database" : connected ? "plug-zap" : "database-zap")} ${live ? "Live data" : connected ? "Supabase ready" : "Connecting"}</span>
       </div>
       <div class="info-list">
         <div><span>Project ref</span><strong>${supabaseConfig.projectRef}</strong></div>
@@ -1499,17 +1473,17 @@ function renderChart() {
   `;
 }
 
-function renderRevenueModel() {
+function renderImpactSummary(totals) {
   return `
     <div class="revenue-model">
       <div class="split-ring">
-        <span>40%</span>
-        <strong>Farmer</strong>
+        <span>${totals.available}</span>
+        <strong>Open trees</strong>
       </div>
       <div class="split-copy">
-        <div><b>${money(2000)}</b><span>direct farmer support from every adoption</span></div>
-        <div><b>${money(3000)}</b><span>verification, operations, reporting and ecosystem care</span></div>
-        <div><b>${money(5000)}</b><span>transparent total adoption amount per cashew tree</span></div>
+        <div><b>${orchards.length}</b><span>published orchard profiles</span></div>
+        <div><b>${totals.adopted}</b><span>trees already adopted across live farms</span></div>
+        <div><b>${totals.trees}</b><span>total trees tracked in the current program data</span></div>
       </div>
     </div>
   `;
@@ -1544,21 +1518,20 @@ function downloadTextFile(filename, content, mimeType = "text/plain") {
 function exportCsv(type) {
   if (type === "farmer-adoptions") {
     const rows = [
-      ["Supporter", "Trees", "Date", "Farmer payout"],
-      ["Rahul Mehta", "10", "10 May 2026", "20000"],
-      ["Priya Sharma", "5", "08 May 2026", "10000"],
-      ["Anand Deshmukh", "5", "15 Apr 2026", "10000"],
+      ["Supporter", "Trees", "Date", "Status"],
+      ["", "", "", "No adoption records yet"],
     ];
     return downloadTextFile("myorchard-farmer-adoptions.csv", toCsv(rows), "text/csv");
   }
 
   if (type === "admin-payments") {
     const rows = [
-      ["Supporter", "Farm", "Trees", "Total amount", "Farmer share", "Ecosystem share"],
-      ["Anand Deshmukh", "Patil Cashew Farm", "5", "25000", "10000", "15000"],
-      ["Priya Sharma", "Kadam Orchard", "3", "15000", "6000", "9000"],
-      ["Rahul Mehta", "Naik Cashew Farm", "10", "50000", "20000", "30000"],
+      ["Farm", "Farmer", "Adopted trees", "Total amount"],
+      ...orchards
+        .filter((farm) => Number(farm.adopted) > 0)
+        .map((farm) => [farm.name, farm.farmer, String(farm.adopted), String((Number(farm.adopted) || 0) * programConfig.adoptionAmount)]),
     ];
+    if (rows.length === 1) rows.push(["", "", "", "No payment records yet"]);
     return downloadTextFile("myorchard-admin-payments.csv", toCsv(rows), "text/csv");
   }
 
@@ -1567,10 +1540,11 @@ function exportCsv(type) {
 
 function downloadCertificate() {
   const farm = selectedFarm();
+  if (!farm) return "";
   const content = [
     "MYORCHARD CERTIFICATE OF TREE ADOPTION",
     "",
-    "This is to certify that Anand Deshmukh has adopted",
+    `This is to certify that ${supporterDisplayName()} has adopted`,
     `${state.treeCount} Cashew Tree${state.treeCount > 1 ? "s" : ""}`,
     `from ${farm.name}, ${farm.district}, Maharashtra.`,
     "",
@@ -1611,7 +1585,7 @@ document.addEventListener("click", (event) => {
       state.teamAccessOpen = false;
       state.loginMessage = "";
     } else {
-      state.loginMessage = "This email does not have team access in the mock data.";
+      state.loginMessage = "This email does not have team access.";
     }
     render();
     return;
@@ -1635,7 +1609,7 @@ document.addEventListener("click", (event) => {
 
   if (action === "download-certificate") {
     const filename = downloadCertificate();
-    state.toast = `${filename} downloaded`;
+    state.toast = filename ? `${filename} downloaded` : "Choose a farm before downloading a certificate";
     render();
     return;
   }
@@ -1718,8 +1692,15 @@ document.addEventListener("click", (event) => {
   }
 
   if (action === "farmer-submit") {
+    if (!farmerSubmissionReady()) {
+      state.toast = "Complete farmer, orchard, tree, and bank details before submitting.";
+      render();
+      return;
+    }
+    upsertFarmerVerification();
     state.farmerSubmitted = true;
     state.farmerTab = "dashboard";
+    state.toast = "Orchard submitted for verification";
     render();
     return;
   }

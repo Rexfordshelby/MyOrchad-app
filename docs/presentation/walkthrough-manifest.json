@@ -1,14 +1,20 @@
 {
-  "generatedAt": "2026-07-07T06:27:04.560Z",
+  "generatedAt": "2026-07-07T13:11:52.515Z",
   "appUrl": "http://127.0.0.1:5177/",
   "checks": {
     "normalUserAdminHidden": true,
+    "noEarlyPrice": true,
+    "farmerStartsBlank": true,
     "farmerExport": "myorchard-farmer-adoptions.csv",
     "supporterAdminHidden": true,
+    "supporterNoSplitCopy": true,
+    "orchardsUseEmptyState": true,
     "adminEmailAccepted": true,
     "adminNavVisible": true,
+    "farmerSubmissionVisibleToAdmin": true,
     "adminPaymentsExport": "myorchard-admin-payments.csv",
-    "dataConnectionText": "Live data"
+    "adminNoSplitCopy": true,
+    "dataConnectionText": "Not live"
   },
   "screenshots": [
     {
@@ -44,52 +50,40 @@
       "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\08-orchards-listing.png"
     },
     {
-      "title": "Farm detail",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\09-farm-detail.png"
-    },
-    {
-      "title": "Adoption payment",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\10-adoption-payment.png"
-    },
-    {
-      "title": "Adoption complete",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\11-adoption-complete.png"
-    },
-    {
       "title": "Supporter updates",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\12-supporter-updates.png"
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\09-supporter-updates.png"
     },
     {
       "title": "Supporter profile",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\13-supporter-profile.png"
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\10-supporter-profile.png"
     },
     {
       "title": "Admin dashboard",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\14-admin-dashboard.png"
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\11-admin-dashboard.png"
     },
     {
       "title": "Admin farmers",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\15-admin-farmers.png"
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\12-admin-farmers.png"
     },
     {
       "title": "Admin orchards",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\16-admin-orchards.png"
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\13-admin-orchards.png"
     },
     {
       "title": "Admin verification",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\17-admin-verification.png"
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\14-admin-verification.png"
     },
     {
       "title": "Admin payments",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\18-admin-payments.png"
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\15-admin-payments.png"
     },
     {
       "title": "Admin reports",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\19-admin-reports.png"
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\16-admin-reports.png"
     },
     {
       "title": "Admin settings",
-      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\20-admin-settings.png"
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\17-admin-settings.png"
     }
   ]
 }

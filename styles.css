@@ -1650,7 +1650,7 @@ img {
   color: var(--forest);
   background:
     radial-gradient(circle, #fffdf6 0 42%, transparent 43%),
-    conic-gradient(var(--leaf) 0 40%, #c7cf91 40% 100%);
+    conic-gradient(var(--leaf) 0 55%, #c7cf91 55% 100%);
   border-radius: 50%;
   box-shadow: var(--soft-shadow);
 }
