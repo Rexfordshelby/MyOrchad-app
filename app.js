@@ -11,19 +11,23 @@ const assets = {
 const supabaseConfig = {
   url: "https://kbrpjigxqchldjnjyuem.supabase.co",
   publishableKey: "sb_publishable_MS2gZ9VOqi5Vs2-KfXpH3g_Mc8uKc9i",
+  anonKey:
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImticnBqaWd4cWNobGRqbmp5dWVtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzOTUyMzAsImV4cCI6MjA5ODk3MTIzMH0.fp2yqR1Ba0YFxT8WWDzXA92FrGoi7f1EeuwxToo9VVg",
   projectRef: "kbrpjigxqchldjnjyuem",
 };
 
 const supabaseBridge = {
   client: null,
   status: "mock",
+  dataSource: "Mock data",
+  lastSync: "",
   message: "Mock data active until Supabase tables and RLS policies are ready.",
   init() {
     const supabaseGlobal = typeof supabase !== "undefined" ? supabase : null;
     const supabaseFactory = window.supabase?.createClient || globalThis.supabase?.createClient || supabaseGlobal?.createClient;
     if (!supabaseFactory) return;
 
-    this.client = supabaseFactory(supabaseConfig.url, supabaseConfig.publishableKey, {
+    this.client = supabaseFactory(supabaseConfig.url, supabaseConfig.publishableKey || supabaseConfig.anonKey, {
       auth: {
         autoRefreshToken: true,
         persistSession: true,
@@ -31,7 +35,62 @@ const supabaseBridge = {
       },
     });
     this.status = "connected";
-    this.message = "Supabase client ready. Mock records remain visible until live tables are mapped.";
+    this.dataSource = "Connected, mock fallback";
+    this.message = "Supabase client ready. Live tables will replace mock records when readable rows exist.";
+  },
+  async sync() {
+    if (!this.client) return false;
+
+    const [orchardRows, verificationRows, updateRows] = await Promise.all([
+      this.readTable("orchards"),
+      this.readTable("verifications"),
+      this.readTable("farmer_updates"),
+    ]);
+
+    let loaded = false;
+
+    if (orchardRows?.length) {
+      orchards.splice(0, orchards.length, ...orchardRows.map(mapSupabaseOrchard));
+      loaded = true;
+    }
+
+    if (verificationRows?.length) {
+      state.verifications = verificationRows.map(mapSupabaseVerification);
+      loaded = true;
+    }
+
+    if (updateRows?.length) {
+      state.farmerUpdates = updateRows.map(mapSupabaseUpdate);
+      loaded = true;
+    }
+
+    this.lastSync = new Date().toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    if (loaded) {
+      this.status = "live";
+      this.dataSource = "Supabase live data";
+      this.message = "Live Supabase rows loaded into the UI with mock fallback still available.";
+    } else {
+      this.status = "connected";
+      this.dataSource = "Connected, mock fallback";
+      this.message = "Supabase connected. Mock data is shown until the expected tables have readable rows.";
+    }
+
+    return loaded;
+  },
+  async readTable(table) {
+    try {
+      const { data, error } = await this.client.from(table).select("*").limit(50);
+      if (error || !Array.isArray(data)) return null;
+      return data;
+    } catch {
+      return null;
+    }
   },
 };
 
@@ -39,7 +98,9 @@ window.MyOrchardSupabase = supabaseBridge;
 
 const districts = ["Sindhudurg", "Ratnagiri", "Kolhapur"];
 
-const orchards = [
+const mockImages = [assets.trust, assets.supporter, assets.farmer, assets.revenue];
+
+let orchards = [
   {
     id: "patil",
     name: "Patil Cashew Farm",
@@ -242,6 +303,62 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function firstValue(row, keys, fallback = "") {
+  for (const key of keys) {
+    const value = row?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return fallback;
+}
+
+function numberValue(row, keys, fallback = 0) {
+  const value = Number(firstValue(row, keys, fallback));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function mapSupabaseOrchard(row, index) {
+  const totalTrees = numberValue(row, ["total_trees", "totalTrees", "trees"], 0);
+  const adopted = numberValue(row, ["adopted", "adopted_trees", "adoptedTrees"], 0);
+  const available = numberValue(row, ["available", "available_trees", "availableTrees"], Math.max(totalTrees - adopted, 0));
+
+  return {
+    id: String(firstValue(row, ["slug", "id", "orchard_id"], `farm-${index + 1}`)),
+    name: String(firstValue(row, ["name", "orchard_name", "farm"], "Verified Orchard")),
+    farmer: String(firstValue(row, ["farmer", "farmer_name", "owner_name"], "Registered Farmer")),
+    district: String(firstValue(row, ["district"], "Sindhudurg")),
+    village: String(firstValue(row, ["village"], "Konkan")),
+    state: String(firstValue(row, ["state"], "Maharashtra")),
+    acres: String(firstValue(row, ["acres", "land_acres"], "1.0")),
+    totalTrees,
+    adopted,
+    available,
+    rating: String(firstValue(row, ["rating"], "4.7")),
+    income: numberValue(row, ["income", "farmer_income"], adopted * 2000),
+    image: String(firstValue(row, ["image", "image_url", "photo_url"], mockImages[index % mockImages.length])),
+    coordinates: String(firstValue(row, ["coordinates", "geo", "lat_lng"], "15.9042 N, 73.8216 E")),
+    summary: String(firstValue(row, ["summary", "description"], "A verified orchard connected through the MyOrchard program.")),
+  };
+}
+
+function mapSupabaseVerification(row, index) {
+  return {
+    id: String(firstValue(row, ["id", "verification_id"], `v-${index + 1}`)),
+    farmer: String(firstValue(row, ["farmer", "farmer_name"], "Registered Farmer")),
+    farm: String(firstValue(row, ["farm", "farm_name", "orchard_name"], "Verified Orchard")),
+    district: String(firstValue(row, ["district"], "Sindhudurg")),
+    status: String(firstValue(row, ["status", "verification_status"], "Pending")),
+    trees: numberValue(row, ["trees", "total_trees", "totalTrees"], 0),
+  };
+}
+
+function mapSupabaseUpdate(row) {
+  return {
+    title: String(firstValue(row, ["title"], "Farm progress update")),
+    date: String(firstValue(row, ["date", "created_at", "updated_at"], "06 Jul 2026")).slice(0, 16),
+    body: String(firstValue(row, ["body", "note", "description"], "New orchard update from the farmer.")),
+  };
 }
 
 function selectedFarm() {
@@ -1277,18 +1394,21 @@ function renderAdminSettings() {
 }
 
 function renderSupabaseStatus() {
-  const connected = supabaseBridge.status === "connected";
+  const connected = supabaseBridge.status === "connected" || supabaseBridge.status === "live";
+  const live = supabaseBridge.status === "live";
   return `
     <section class="card">
       <div class="section-title">
         <h2>Data connection</h2>
-        <span class="tag ${connected ? "" : "clay"}">${icon(connected ? "database" : "database-zap")} ${connected ? "Supabase ready" : "Mock mode"}</span>
+        <span class="tag ${connected ? "" : "clay"}">${icon(live ? "database" : connected ? "plug-zap" : "database-zap")} ${live ? "Live data" : connected ? "Supabase ready" : "Mock mode"}</span>
       </div>
       <div class="info-list">
         <div><span>Project ref</span><strong>${supabaseConfig.projectRef}</strong></div>
         <div><span>Endpoint</span><strong>supabase.co</strong></div>
         <div><span>Client key</span><strong>Publishable</strong></div>
-        <div><span>Data source</span><strong>${connected ? "Client connected" : "Local mock data"}</strong></div>
+        <div><span>Data source</span><strong>${supabaseBridge.dataSource}</strong></div>
+        <div><span>Tables checked</span><strong>orchards, verifications, updates</strong></div>
+        <div><span>Last sync</span><strong>${supabaseBridge.lastSync || "Waiting"}</strong></div>
       </div>
       <p class="muted" style="margin-top:14px">${supabaseBridge.message}</p>
       <p class="muted" style="margin-top:8px">Server-only database URLs are kept out of the frontend.</p>
@@ -1662,3 +1782,4 @@ document.addEventListener("change", (event) => {
 
 supabaseBridge.init();
 render();
+supabaseBridge.sync().then(() => render());

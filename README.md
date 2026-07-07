@@ -21,6 +21,10 @@ Open `http://127.0.0.1:5177/`.
 
 ## Notes
 
-The app currently renders local mock data while the Supabase client is initialized with the project publishable key. Once tables and RLS policies are ready, map the client to authentication, profiles, farms, adoptions, payments, certificates, and admin verification records.
+The app initializes the Supabase browser client with the project publishable key and anon fallback. On startup it tries to read `orchards`, `verifications`, and `farmer_updates`; if those tables are empty or not created yet, it keeps the polished local mock data visible so the UI never breaks during demos.
 
 Do not place the Postgres pooler/database connection string in this frontend repo. Keep it server-side only.
+
+## Supabase setup
+
+Run `supabase/schema.sql` in the Supabase SQL editor to create the starter tables, RLS policies, and demo rows expected by the UI. Tighten the prototype read policies before production launch.
