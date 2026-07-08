@@ -4,6 +4,8 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const appJs = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const schemaSql = fs.readFileSync(path.join(root, "supabase", "schema.sql"), "utf8");
+const postMigrationSqlPath = path.join(root, "supabase", "post-migration-check.sql");
+const postMigrationSql = fs.existsSync(postMigrationSqlPath) ? fs.readFileSync(postMigrationSqlPath, "utf8") : "";
 
 const failures = [];
 const report = [];
@@ -134,6 +136,20 @@ for (const [label, regex] of backendGuards) {
   ensure(regex.test(schemaSql), "Backend guard missing", label);
 }
 report.push(`Backend guards checked: ${backendGuards.length}`);
+
+ensure(postMigrationSql.length > 0, "Supabase post-migration check SQL is missing", "supabase/post-migration-check.sql");
+for (const table of requiredTables) {
+  ensure(postMigrationSql.includes(`('${table}')`), "Post-migration check does not cover required table", table);
+}
+for (const email of adminEmails) {
+  ensure(postMigrationSql.includes(`('${email}')`), "Post-migration check does not cover admin seed", email);
+}
+const postMigrationSections = ["tables", "columns", "admin seed", "rls", "policies", "triggers", "indexes"];
+for (const section of postMigrationSections) {
+  ensure(postMigrationSql.includes(`'${section}' as section`), "Post-migration check section missing", section);
+}
+ensure(/Every returned row should have ok = true\./.test(postMigrationSql), "Post-migration check must state the success condition");
+report.push(`Post-migration SQL check covered: ${postMigrationSections.length} sections`);
 
 const output = [
   "MyOrchard local schema contract check",

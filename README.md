@@ -32,6 +32,8 @@ Do not place the Postgres pooler/database connection string in this frontend rep
 
 Run `supabase/schema.sql` in the Supabase SQL editor to create or upgrade the tables, triggers, and RLS policies expected by the UI. The schema includes profiles, admin email checks, farmer verification writes, adoption/certificate records, farmer updates, admin-managed program settings, and adoption inventory updates for orchard availability.
 
+Use `supabase/README.md` as the dashboard migration runbook. After applying `schema.sql`, run `supabase/post-migration-check.sql` in the Supabase SQL editor and confirm every row returns `ok = true`.
+
 If Admin > Settings shows `Schema setup needed`, the frontend is connected to Supabase but the live project has not run the latest `supabase/schema.sql` yet.
 
 You can verify the live project from this repo:
