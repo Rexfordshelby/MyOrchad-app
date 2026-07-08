@@ -236,6 +236,7 @@ const state = {
   authName: "",
   authMessage: "",
   authBusy: false,
+  profileSyncWarning: "",
   adminEmails: [
     "admin@myorchard.app",
     "admin@kalpavrikshaagro.com",
@@ -609,6 +610,7 @@ function clearSession() {
   state.role = null;
   state.session = null;
   state.authPassword = "";
+  state.profileSyncWarning = "";
   state.profileEditMode = false;
 }
 
@@ -632,7 +634,7 @@ async function readAdminAccess(email) {
 }
 
 async function upsertUserProfile({ session, role, fullName, language = state.lang }) {
-  if (!supabaseBridge.client || !session?.user) return null;
+  if (!supabaseBridge.client || !session?.user) return { profile: null, error: null };
   const email = normalizeEmail(session.user.email);
   const fallbackName = fullName || session.user.user_metadata?.full_name || roleLabel(role);
   const payload = {
@@ -648,8 +650,8 @@ async function upsertUserProfile({ session, role, fullName, language = state.lan
     .upsert(payload, { onConflict: "user_id" })
     .select()
     .maybeSingle();
-  if (error) return null;
-  return data;
+  if (error) return { profile: null, error };
+  return { profile: data, error: null };
 }
 
 function applyProfileToState(profile, role) {
@@ -677,7 +679,7 @@ async function applyAuthSession(session, options = {}) {
   const requestedRole = session.user.user_metadata?.role;
   const role = admin ? "admin" : ["farmer", "supporter"].includes(requestedRole) ? requestedRole : state.authRole;
   const fullName = session.user.user_metadata?.full_name || state.authName.trim() || roleLabel(role);
-  const profile = await upsertUserProfile({ session, role, fullName });
+  const { profile, error: profileError } = await upsertUserProfile({ session, role, fullName });
 
   state.session = {
     userId: session.user.id,
@@ -688,13 +690,16 @@ async function applyAuthSession(session, options = {}) {
   state.role = role;
   state.authPassword = "";
   state.authMessage = "";
+  state.profileSyncWarning = profileError ? "Account connected, but profile sync needs backend attention." : "";
   applyProfileToState(profile, role);
 
   if (role === "admin") state.adminTab = "dashboard";
   if (role === "farmer") state.farmerTab = state.farmerSubmitted ? "dashboard" : "onboarding";
   if (role === "supporter") state.supporterTab = "home";
 
-  if (!options.silent) state.toast = role === "admin" ? "Management access unlocked" : `Welcome, ${state.session.name}`;
+  if (!options.silent) {
+    state.toast = state.profileSyncWarning || (role === "admin" ? "Management access unlocked" : `Welcome, ${state.session.name}`);
+  }
 }
 
 function firstValue(row, keys, fallback = "") {

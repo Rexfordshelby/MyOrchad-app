@@ -50,6 +50,7 @@ ensure(readme.includes(adminEmail), "Admin email missing from README access note
 ensure(/function hasAdminAccess\(\)[\s\S]*state\.role === "admin"[\s\S]*state\.session\?\.role === "admin"[\s\S]*isAdminEmail\(state\.session\.email\)/.test(appJs), "Admin gate must require admin role, admin session role, and approved email");
 ensure(/else if \(hasAdminAccess\(\)\)[\s\S]*renderTopbar\("Admin"\) \+ renderAdmin\(\)/.test(appJs), "Admin screen should only render behind hasAdminAccess()");
 ensure(!/data-role=["']admin["'][\s\S]{0,160}choose-role/.test(appJs), "Welcome role picker must not expose admin as a public role");
+ensure(/profileSyncWarning[\s\S]*profile sync needs backend attention/.test(appJs), "Profile sync failures should be visible after sign-in");
 report.push("Admin gate checked");
 
 ensure(/data-action=["']language["'][\s\S]*data-lang=["']en["']/.test(appJs), "English language switch is missing");
