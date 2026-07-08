@@ -50,10 +50,16 @@ node tools/check-ui-contract.cjs
 
 That check fails if a rendered `data-action` button has no click handler, an export button has no CSV path, the admin email is not present in both the frontend and Supabase seed, Marathi language persistence is missing, or production-facing files contain fixture markers.
 
+You can verify that the local Supabase SQL matches the app contract before sending it to the dashboard:
+
+```bash
+node tools/check-schema-contract.cjs
+```
+
 Before presenting the app as launch-ready, run the full gate:
 
 ```bash
 node tools/check-launch-readiness.cjs
 ```
 
-This command runs JavaScript syntax checks, frontend control checks, and the live Supabase schema check in one pass.
+This command runs JavaScript syntax checks, frontend control checks, local SQL contract checks, and the live Supabase schema check in one pass.

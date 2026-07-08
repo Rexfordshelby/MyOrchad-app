@@ -55,7 +55,7 @@ report.push("Admin gate checked");
 ensure(/data-action=["']language["'][\s\S]*data-lang=["']en["']/.test(appJs), "English language switch is missing");
 ensure(/data-action=["']language["'][\s\S]*data-lang=["']mr["']/.test(appJs), "Marathi language switch is missing");
 ensure(/preferred_language/.test(appJs), "Preferred language should be persisted through Supabase profile fields");
-ensure(/const mrText/.test(appJs) && /मराठी/.test(appJs), "Marathi translation map is missing");
+ensure(/const mrText\s*=\s*\{[\s\S]*"MyOrchard app":/.test(appJs), "Marathi translation map is missing");
 report.push("Language switch checked");
 
 const requiredTables = matches(appJs, /requiredSupabaseSchema\s*=\s*\{([\s\S]*?)\};/g)[0]

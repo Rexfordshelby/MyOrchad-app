@@ -17,8 +17,16 @@ const checks = [
     command: [process.execPath, "--check", "tools/check-supabase-readiness.cjs"],
   },
   {
+    name: "Schema contract checker syntax",
+    command: [process.execPath, "--check", "tools/check-schema-contract.cjs"],
+  },
+  {
     name: "Frontend UI contract",
     command: [process.execPath, "tools/check-ui-contract.cjs"],
+  },
+  {
+    name: "Local Supabase schema contract",
+    command: [process.execPath, "tools/check-schema-contract.cjs"],
   },
   {
     name: "Live Supabase schema",
