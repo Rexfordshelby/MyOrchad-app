@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-07-08T07:39:24.643Z",
-  "appUrl": "http://127.0.0.1:58331/",
+  "generatedAt": "2026-07-08T08:37:10.344Z",
+  "appUrl": "http://127.0.0.1:61864/",
   "adminEmail": "raashifshaikh70@gmail.com",
   "checks": {
     "normalUserAdminHidden": true,
@@ -506,6 +506,28 @@
         "Open: jumps into verification work."
       ],
       "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\22-mobile-admin-dashboard.png",
+      "checks": {
+        "adminEmail": "raashifshaikh70@gmail.com",
+        "adminAllowlist": true,
+        "adminNavVisible": true,
+        "adminToolsText": true
+      }
+    },
+    {
+      "file": "23-admin-farm-detail",
+      "title": "Admin farm detail",
+      "scenario": "admin-orchard-detail",
+      "viewport": [
+        1366,
+        768,
+        false
+      ],
+      "purpose": "Lets admin inspect one published orchard record, including tree totals, adoption count, availability, income, and coordinates.",
+      "buttons": [
+        "Back to orchards: returns to the admin orchard inventory.",
+        "Admin navigation: keeps farmers, verification, payments, reports, and settings accessible."
+      ],
+      "filePath": "C:\\Users\\raash\\Documents\\Codex\\2026-07-06\\des\\outputs\\myorchard-app\\docs\\presentation\\screenshots\\23-admin-farm-detail.png",
       "checks": {
         "adminEmail": "raashifshaikh70@gmail.com",
         "adminAllowlist": true,

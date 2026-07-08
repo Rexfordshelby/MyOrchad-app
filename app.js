@@ -28,6 +28,7 @@ const supabaseBridge = {
   lastSync: "",
   message: "Connecting to secure MyOrchard records.",
   authMessage: "",
+  missingTables: [],
   init() {
     const supabaseGlobal = typeof supabase !== "undefined" ? supabase : null;
     const supabaseFactory = window.supabase?.createClient || globalThis.supabase?.createClient || supabaseGlobal?.createClient;
@@ -67,6 +68,7 @@ const supabaseBridge = {
   },
   async sync() {
     if (!this.client) return false;
+    this.missingTables = [];
 
     const [orchardRows, verificationRows, updateRows, adoptionRows, settingsRows] = await Promise.all([
       this.readTable("orchards"),
@@ -74,16 +76,17 @@ const supabaseBridge = {
       this.readTable("farmer_updates"),
       this.readTable("adoptions"),
       this.readTable("program_settings"),
+      this.readTable("app_admins"),
     ]);
 
     let loaded = false;
 
-    const liveOrchardRows = orchardRows?.filter((row) => !seedRecordIds.has(String(firstValue(row, ["slug", "id", "orchard_id"], "")).toLowerCase())) || [];
+    const liveOrchardRows = orchardRows?.filter((row) => !legacyRecordIds.has(String(firstValue(row, ["slug", "id", "orchard_id"], "")).toLowerCase())) || [];
     const liveVerificationRows =
       verificationRows?.filter((row) => {
         const id = String(firstValue(row, ["slug", "farm_slug", "orchard_id"], "")).toLowerCase();
         const farm = String(firstValue(row, ["farm", "farm_name", "orchard_name"], "")).toLowerCase();
-        return !seedRecordIds.has(id) && !seedFarmNames.has(farm);
+        return !legacyRecordIds.has(id) && !legacyFarmNames.has(farm);
       }) || [];
 
     if (liveOrchardRows.length) {
@@ -117,7 +120,11 @@ const supabaseBridge = {
       minute: "2-digit",
     });
 
-    if (loaded) {
+    if (this.missingTables.length) {
+      this.status = "schema";
+      this.dataSource = "Schema setup needed";
+      this.message = `Missing Supabase tables: ${this.missingTables.join(", ")}. Run supabase/schema.sql in the Supabase SQL editor.`;
+    } else if (loaded) {
       this.status = "live";
       this.dataSource = "Supabase live data";
       this.message = "Live Supabase rows are powering this interface.";
@@ -132,7 +139,13 @@ const supabaseBridge = {
   async readTable(table) {
     try {
       const { data, error } = await this.client.from(table).select("*").limit(50);
-      if (error || !Array.isArray(data)) return null;
+      if (error || !Array.isArray(data)) {
+        const message = String(error?.message || "");
+        if (error?.code === "PGRST205" || message.includes("Could not find the table")) {
+          this.missingTables = [...new Set([...this.missingTables, table])];
+        }
+        return null;
+      }
       return data;
     } catch {
       return null;
@@ -149,8 +162,8 @@ window.MyOrchardSupabase = supabaseBridge;
 const districts = ["Sindhudurg", "Ratnagiri", "Kolhapur"];
 
 const fallbackImages = [assets.trust, assets.supporter, assets.farmer, assets.revenue];
-const seedRecordIds = new Set(["patil", "kadam", "naik"]);
-const seedFarmNames = new Set(["patil cashew farm", "kadam orchard", "naik cashew farm"]);
+const legacyRecordIds = new Set(["patil", "kadam", "naik"]);
+const legacyFarmNames = new Set(["patil cashew farm", "kadam orchard", "naik cashew farm"]);
 
 let orchards = [];
 
@@ -308,16 +321,28 @@ const mrText = {
   "MyOrchard app": "मायऑर्चर्ड अॅप",
   "A verified orchard network where farmers publish trusted farm profiles and supporters follow real tree progress.":
     "शेतकरी विश्वसनीय बाग प्रोफाइल प्रकाशित करतात आणि समर्थक झाडांची खरी प्रगती पाहतात असे सत्यापित बाग नेटवर्क.",
+  "KYC, orchard details, and location checks before listing": "यादीपूर्वी KYC, बाग तपशील आणि स्थान तपासणी",
+  "Farmers share photos, notes, and progress in one place": "शेतकरी फोटो, नोंदी आणि प्रगती एकाच ठिकाणी शेअर करतात",
   "Verified farms": "सत्यापित शेती",
   "Live updates": "थेट अपडेट्स",
   "3 districts": "३ जिल्हे",
   "Farmer": "शेतकरी",
   "Supporter": "समर्थक",
+  "Admin": "प्रशासन",
+  "Team": "टीम",
+  "Register your orchard, submit verification details, and keep supporters updated.":
+    "तुमची बाग नोंदवा, तपासणी तपशील सबमिट करा आणि समर्थकांना अपडेट ठेवा.",
+  "Browse verified orchards, choose trees, and receive progress updates.":
+    "सत्यापित बागा पाहा, झाडे निवडा आणि प्रगती अपडेट्स मिळवा.",
+  "Start Farmer account": "शेतकरी खाते सुरू करा",
+  "Start Supporter account": "समर्थक खाते सुरू करा",
+  "Select": "निवडा",
   "Secure account access": "सुरक्षित खाते प्रवेश",
   "Sign in to continue": "पुढे जाण्यासाठी साइन इन करा",
   "Create your MyOrchard account": "तुमचे मायऑर्चर्ड खाते तयार करा",
   "Sign in": "साइन इन",
   "Sign up": "साइन अप",
+  "Connecting...": "जोडत आहे...",
   "Email address": "ईमेल पत्ता",
   "Password": "पासवर्ड",
   "Full name": "पूर्ण नाव",
@@ -325,6 +350,18 @@ const mrText = {
   "Continue as Farmer": "शेतकरी म्हणून पुढे जा",
   "Create Supporter account": "समर्थक खाते तयार करा",
   "Create Farmer account": "शेतकरी खाते तयार करा",
+  "Approved team emails unlock management tools after sign in.":
+    "मंजूर टीम ईमेलने साइन इन केल्यानंतर व्यवस्थापन साधने उघडतात.",
+  "Enter your full name.": "तुमचे पूर्ण नाव लिहा.",
+  "Enter a valid email address.": "योग्य ईमेल पत्ता लिहा.",
+  "Use a password with at least 8 characters.": "किमान ८ अक्षरांचा पासवर्ड वापरा.",
+  "Supabase is not available. Check the backend connection before signing in.":
+    "Supabase उपलब्ध नाही. साइन इन करण्यापूर्वी backend connection तपासा.",
+  "Account created. Please confirm your email, then sign in.":
+    "खाते तयार झाले. कृपया ईमेल पुष्टी करा, मग साइन इन करा.",
+  "Email or password is incorrect.": "ईमेल किंवा पासवर्ड चुकीचा आहे.",
+  "Please confirm your email before signing in.": "साइन इन करण्यापूर्वी तुमचा ईमेल पुष्टी करा.",
+  "This email is already registered. Use Sign in.": "हा ईमेल आधीच नोंदणीकृत आहे. साइन इन वापरा.",
   "Sign out": "साइन आउट",
   "Dashboard": "डॅशबोर्ड",
   "Orchard": "बाग",
@@ -395,6 +432,22 @@ const mrPlaceholders = {
   "Write what changed in the orchard this month": "या महिन्यात बागेत काय बदलले ते लिहा",
 };
 
+function repairLegacyEncoding(value) {
+  if (!/[À-ÿ]/.test(value)) return value;
+  try {
+    const bytes = Uint8Array.from(Array.from(value), (char) => char.charCodeAt(0) & 255);
+    return new TextDecoder("utf-8").decode(bytes);
+  } catch {
+    return value;
+  }
+}
+
+for (const dictionary of [mrText, mrPlaceholders]) {
+  Object.keys(dictionary).forEach((key) => {
+    dictionary[key] = repairLegacyEncoding(dictionary[key]);
+  });
+}
+
 function setLanguage(lang, persist = true) {
   state.lang = lang === "mr" ? "mr" : "en";
   if (persist) localStorage.setItem("myorchard_language", state.lang);
@@ -454,6 +507,35 @@ function slugify(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
+}
+
+function randomIdPart() {
+  if (globalThis.crypto?.getRandomValues) {
+    const values = globalThis.crypto.getRandomValues(new Uint16Array(2));
+    return Array.from(values)
+      .map((value) => value.toString(36).padStart(3, "0"))
+      .join("")
+      .toUpperCase();
+  }
+  return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
+function makeCertificateId(farmId) {
+  const datePart = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  return `MYO-${String(farmId).toUpperCase()}-${datePart}-${randomIdPart()}`;
+}
+
+function applyAdoptionToLocalFarm(farmId, treeCount, totalAmount) {
+  orchards = orchards.map((farm) => {
+    if (farm.id !== farmId) return farm;
+    const adopted = Number(farm.adopted || 0) + Number(treeCount || 0);
+    return {
+      ...farm,
+      adopted,
+      available: Math.max(Number(farm.available || 0) - Number(treeCount || 0), 0),
+      income: Number(farm.income || 0) + Number(totalAmount || 0),
+    };
+  });
 }
 
 function clearSession() {
@@ -645,7 +727,7 @@ function applyProgramSettings(row) {
 }
 
 function selectedFarm() {
-  return orchards.find((farm) => farm.id === state.selectedFarmId) || orchards[0] || null;
+  return orchards.find((farm) => farm.id === state.selectedFarmId) || null;
 }
 
 function orchardTotals() {
@@ -726,9 +808,10 @@ async function saveFarmerUpdate() {
   if (!supabaseBridge.client || !currentUserId()) return { ok: false, message: "Sign in with a farmer account before publishing updates." };
 
   const farmSlug = slugify(state.farmerForm.orchardName);
+  const publishedFarm = orchards.find((farm) => farm.id === farmSlug);
   const payload = {
     user_id: currentUserId(),
-    orchard_slug: farmSlug || null,
+    orchard_slug: publishedFarm ? farmSlug : null,
     title,
     body,
     photo_names: state.updatePhotos,
@@ -747,14 +830,15 @@ async function saveAdoption() {
   if (!farm) return { ok: false, message: "Choose a verified farm before payment." };
   if (!supabaseBridge.client || !currentUserId()) return { ok: false, message: "Sign in with a supporter account before payment." };
   const supporterName = state.paymentForm.supporterName.trim() || supporterDisplayName();
-  const certificateId = `MYO-${farm.id.toUpperCase()}-${Date.now().toString().slice(-6)}`;
+  const totalAmount = programConfig.adoptionAmount * state.treeCount;
+  const certificateId = makeCertificateId(farm.id);
   const payload = {
     user_id: currentUserId(),
     supporter_name: supporterName,
     supporter_mobile: state.paymentForm.mobile.trim() || null,
     orchard_slug: farm.id,
     tree_count: state.treeCount,
-    total_amount: programConfig.adoptionAmount * state.treeCount,
+    total_amount: totalAmount,
     payment_method: state.paymentMethod,
     payment_status: "Paid",
     certificate_id: certificateId,
@@ -763,6 +847,7 @@ async function saveAdoption() {
   if (error) return { ok: false, message: error.message };
   const record = mapSupabaseAdoption(data);
   state.adoptions = [record, ...state.adoptions.filter((item) => item.id !== record.id)];
+  applyAdoptionToLocalFarm(farm.id, state.treeCount, totalAmount);
   return { ok: true, record };
 }
 
@@ -1569,6 +1654,7 @@ function renderOrchardListing() {
 }
 
 function renderOrchardCard(farm) {
+  const isAdmin = state.role === "admin" && hasAdminAccess();
   return `
     <article class="list-card">
       <img class="thumb" src="${farm.image}" alt="${farm.name}" />
@@ -1584,9 +1670,15 @@ function renderOrchardCard(farm) {
           <span class="tag clay">Verified listing</span>
         </div>
       </div>
-      <button class="btn secondary" type="button" data-action="open-farm" data-farm="${farm.id}">
-        View farm ${icon("chevron-right")}
-      </button>
+      ${
+        isAdmin
+          ? `<button class="btn secondary" type="button" data-action="admin-open-farm" data-farm="${farm.id}">
+              View farm ${icon("chevron-right")}
+            </button>`
+          : `<button class="btn secondary" type="button" data-action="open-farm" data-farm="${farm.id}">
+              View farm ${icon("chevron-right")}
+            </button>`
+      }
     </article>
   `;
 }
@@ -1887,6 +1979,8 @@ function renderAdminContent() {
       return renderAdminFarmers();
     case "orchards":
       return renderAdminOrchards();
+    case "orchard-detail":
+      return renderAdminFarmDetail();
     case "verifications":
       return renderAdminVerifications();
     case "payments":
@@ -1950,6 +2044,48 @@ function renderAdminOrchards() {
   return `
     ${renderPageTitle("Orchards", "Manage registered farms, tree inventory, adoption availability, and locations.")}
     <div class="list">${orchards.length ? orchards.map(renderOrchardCard).join("") : renderEmptyState("No orchards published", "Approved orchards will appear here after records are created in Supabase.", "tree-pine")}</div>
+  `;
+}
+
+function renderAdminFarmDetail() {
+  const farm = selectedFarm();
+  if (!farm) {
+    return `
+      ${renderPageTitle(
+        "Farm details",
+        "Choose a published orchard record to inspect availability, adoption totals, and location.",
+        `<button class="btn secondary" type="button" data-action="nav" data-role="admin" data-tab="orchards">${icon("arrow-left")} Back to orchards</button>`,
+      )}
+      ${renderEmptyState("No orchard selected", "Open a farm from the admin orchard list to review the record.", "tree-pine")}
+    `;
+  }
+
+  return `
+    ${renderPageTitle(
+      farm.name,
+      `${farm.farmer} - ${farm.village}, ${farm.district}, ${farm.state}`,
+      `<button class="btn secondary" type="button" data-action="nav" data-role="admin" data-tab="orchards">${icon("arrow-left")} Back to orchards</button>`,
+    )}
+    <section class="farm-hero">
+      <div class="farm-photo">
+        <img src="${farm.image}" alt="${farm.name} orchard" />
+      </div>
+      <aside class="farm-summary">
+        <span class="pill">${icon("shield-check")} Admin orchard record</span>
+        <h1>${farm.name}</h1>
+        <p class="muted">${farm.summary}</p>
+        <div class="stat-line">
+          <div class="stat-box"><small>Total trees</small><strong>${farm.totalTrees}</strong></div>
+          <div class="stat-box"><small>Adopted</small><strong>${farm.adopted}</strong></div>
+          <div class="stat-box"><small>Available</small><strong>${farm.available}</strong></div>
+        </div>
+        <div class="info-list">
+          <div><span>Farm size</span><strong>${farm.acres} acres</strong></div>
+          <div><span>Income tracked</span><strong>${money(farm.income)}</strong></div>
+          <div><span>Coordinates</span><strong>${farm.coordinates}</strong></div>
+        </div>
+      </aside>
+    </section>
   `;
 }
 
@@ -2022,13 +2158,14 @@ function renderAdminSettings() {
 }
 
 function renderSupabaseStatus() {
-  const connected = ["connected", "live", "empty"].includes(supabaseBridge.status);
+  const connected = ["connected", "live", "empty", "schema"].includes(supabaseBridge.status);
   const live = supabaseBridge.status === "live";
+  const setupNeeded = supabaseBridge.status === "schema";
   return `
     <section class="card">
       <div class="section-title">
         <h2>Data connection</h2>
-        <span class="tag ${connected ? "" : "clay"}">${icon(live ? "database" : connected ? "plug-zap" : "database-zap")} ${live ? "Live data" : connected ? "Supabase ready" : "Connecting"}</span>
+        <span class="tag ${connected && !setupNeeded ? "" : "clay"}">${icon(live ? "database" : setupNeeded ? "database-zap" : connected ? "plug-zap" : "database-zap")} ${live ? "Live data" : setupNeeded ? "Schema setup needed" : connected ? "Supabase ready" : "Connecting"}</span>
       </div>
       <div class="info-list">
         <div><span>Project ref</span><strong>${supabaseConfig.projectRef}</strong></div>
@@ -2414,6 +2551,13 @@ document.addEventListener("click", async (event) => {
   if (action === "open-farm") {
     state.selectedFarmId = target.dataset.farm;
     state.supporterTab = "farm";
+    render();
+    return;
+  }
+
+  if (action === "admin-open-farm") {
+    state.selectedFarmId = target.dataset.farm;
+    state.adminTab = "orchard-detail";
     render();
     return;
   }

@@ -121,6 +121,69 @@ create unique index if not exists adoptions_certificate_id_key
   on public.adoptions (certificate_id)
   where certificate_id is not null;
 
+create or replace function public.ensure_adoption_inventory()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_available integer;
+begin
+  if new.orchard_slug is null then
+    return new;
+  end if;
+
+  select available_trees
+    into current_available
+    from public.orchards
+    where slug = new.orchard_slug
+    for update;
+
+  if current_available is null then
+    raise exception 'Selected orchard is not available for adoption.';
+  end if;
+
+  if current_available < new.tree_count then
+    raise exception 'Only % trees are available for this orchard.', current_available;
+  end if;
+
+  return new;
+end;
+$$;
+
+create or replace function public.apply_adoption_inventory()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.orchard_slug is not null then
+    update public.orchards
+      set adopted_trees = least(total_trees, adopted_trees + new.tree_count),
+          available_trees = greatest(total_trees - least(total_trees, adopted_trees + new.tree_count), 0),
+          farmer_income = farmer_income + new.total_amount,
+          updated_at = now()
+      where slug = new.orchard_slug;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists ensure_adoption_inventory on public.adoptions;
+create trigger ensure_adoption_inventory
+  before insert on public.adoptions
+  for each row
+  execute function public.ensure_adoption_inventory();
+
+drop trigger if exists apply_adoption_inventory on public.adoptions;
+create trigger apply_adoption_inventory
+  after insert on public.adoptions
+  for each row
+  execute function public.apply_adoption_inventory();
+
 create table if not exists public.program_settings (
   id text primary key default 'program',
   adoption_amount integer not null default 5000,
@@ -191,13 +254,13 @@ create policy "users can read own verifications or admins read all"
 drop policy if exists "farmers can insert own verification" on public.verifications;
 create policy "farmers can insert own verification"
   on public.verifications for insert
-  with check (auth.uid() = user_id);
+  with check (auth.uid() = user_id and status = 'Pending');
 
 drop policy if exists "farmers can update pending own verification" on public.verifications;
 create policy "farmers can update pending own verification"
   on public.verifications for update
   using (auth.uid() = user_id and status <> 'Verified')
-  with check (auth.uid() = user_id);
+  with check (auth.uid() = user_id and status <> 'Verified');
 
 drop policy if exists "admins can update verifications" on public.verifications;
 create policy "admins can update verifications"

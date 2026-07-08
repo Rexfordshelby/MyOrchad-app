@@ -275,6 +275,17 @@ const screens = [
       "Open: jumps into verification work.",
     ],
   },
+  {
+    file: "23-admin-farm-detail",
+    title: "Admin farm detail",
+    scenario: "admin-orchard-detail",
+    viewport: [1366, 768, false],
+    purpose: "Lets admin inspect one published orchard record, including tree totals, adoption count, availability, income, and coordinates.",
+    buttons: [
+      "Back to orchards: returns to the admin orchard inventory.",
+      "Admin navigation: keeps farmers, verification, payments, reports, and settings accessible.",
+    ],
+  },
 ];
 
 let activeChrome = null;
