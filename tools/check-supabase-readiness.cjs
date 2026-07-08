@@ -67,8 +67,7 @@ const required = {
   ],
 };
 
-async function read(table, columns) {
-  const select = columns.join(",");
+async function requestTable(table, select = "*") {
   const response = await fetch(`${supabaseUrl}/rest/v1/${table}?select=${encodeURIComponent(select)}&limit=1`, {
     headers: {
       apikey: publishableKey,
@@ -84,10 +83,42 @@ async function read(table, columns) {
   };
 }
 
+async function inspectTable(table, columns) {
+  const tableCheck = await requestTable(table);
+  if (!tableCheck.ok) {
+    return {
+      table,
+      ok: false,
+      status: tableCheck.status,
+      tableMissing: true,
+      missingColumns: columns,
+      body: tableCheck.body,
+    };
+  }
+
+  const missingColumns = [];
+  const errors = [];
+  for (const column of columns) {
+    const columnCheck = await requestTable(table, column);
+    if (columnCheck.ok) continue;
+    missingColumns.push(column);
+    errors.push(columnCheck.body);
+  }
+
+  return {
+    table,
+    ok: missingColumns.length === 0,
+    status: missingColumns.length ? 400 : 200,
+    tableMissing: false,
+    missingColumns,
+    body: errors[0] || tableCheck.body,
+  };
+}
+
 async function main() {
   const results = [];
   for (const [table, columns] of Object.entries(required)) {
-    results.push(await read(table, columns));
+    results.push(await inspectTable(table, columns));
   }
 
   let failed = false;
@@ -108,7 +139,11 @@ async function main() {
     } catch {
       // Keep original body.
     }
-    console.log(`[MISSING] ${result.table} (${result.status}) ${message}`);
+    if (result.tableMissing) {
+      console.log(`[MISSING] ${result.table} (${result.status}) ${message}`);
+    } else {
+      console.log(`[MISSING] ${result.table} columns: ${result.missingColumns.join(", ")}`);
+    }
   }
 
   if (failed) {

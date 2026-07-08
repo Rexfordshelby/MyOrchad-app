@@ -39,3 +39,5 @@ You can verify the live project from this repo:
 ```bash
 node tools/check-supabase-readiness.cjs
 ```
+
+The checker reports missing tables and missing columns, so it is safe to run before and after applying the SQL.

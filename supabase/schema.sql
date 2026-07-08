@@ -52,8 +52,26 @@ create table if not exists public.orchards (
   updated_at timestamptz not null default now()
 );
 
+alter table public.orchards add column if not exists slug text;
+alter table public.orchards add column if not exists name text;
+alter table public.orchards add column if not exists farmer_name text;
+alter table public.orchards add column if not exists district text;
+alter table public.orchards add column if not exists village text;
+alter table public.orchards add column if not exists state text not null default 'Maharashtra';
+alter table public.orchards add column if not exists acres numeric(8, 2) not null default 0;
+alter table public.orchards add column if not exists total_trees integer not null default 0;
+alter table public.orchards add column if not exists adopted_trees integer not null default 0;
+alter table public.orchards add column if not exists available_trees integer not null default 0;
+alter table public.orchards add column if not exists rating numeric(3, 1) not null default 4.7;
+alter table public.orchards add column if not exists farmer_income integer not null default 0;
+alter table public.orchards add column if not exists image_url text;
+alter table public.orchards add column if not exists coordinates text;
+alter table public.orchards add column if not exists summary text;
 alter table public.orchards add column if not exists created_by uuid references auth.users(id) on delete set null;
 alter table public.orchards add column if not exists updated_at timestamptz not null default now();
+
+create unique index if not exists orchards_slug_key
+  on public.orchards (slug);
 
 create table if not exists public.verifications (
   id uuid primary key default gen_random_uuid(),
@@ -74,12 +92,18 @@ create table if not exists public.verifications (
 );
 
 alter table public.verifications add column if not exists user_id uuid references auth.users(id) on delete set null;
+alter table public.verifications add column if not exists farmer_name text;
+alter table public.verifications add column if not exists farm_name text;
+alter table public.verifications add column if not exists district text;
 alter table public.verifications add column if not exists village text;
 alter table public.verifications add column if not exists acres numeric(8, 2) not null default 0;
 alter table public.verifications add column if not exists crop text not null default 'Cashew';
 alter table public.verifications add column if not exists mobile text;
 alter table public.verifications add column if not exists bank_name text;
 alter table public.verifications add column if not exists account_number text;
+alter table public.verifications add column if not exists status text not null default 'Pending';
+alter table public.verifications add column if not exists total_trees integer not null default 0;
+alter table public.verifications add column if not exists created_at timestamptz not null default now();
 alter table public.verifications add column if not exists updated_at timestamptz not null default now();
 
 create unique index if not exists verifications_farm_farmer_key
@@ -96,7 +120,11 @@ create table if not exists public.farmer_updates (
 );
 
 alter table public.farmer_updates add column if not exists user_id uuid references auth.users(id) on delete set null;
+alter table public.farmer_updates add column if not exists orchard_slug text references public.orchards(slug) on delete set null;
+alter table public.farmer_updates add column if not exists title text;
+alter table public.farmer_updates add column if not exists body text;
 alter table public.farmer_updates add column if not exists photo_names text[] not null default '{}';
+alter table public.farmer_updates add column if not exists created_at timestamptz not null default now();
 
 create table if not exists public.adoptions (
   id uuid primary key default gen_random_uuid(),
@@ -113,9 +141,15 @@ create table if not exists public.adoptions (
 );
 
 alter table public.adoptions add column if not exists user_id uuid references auth.users(id) on delete set null;
+alter table public.adoptions add column if not exists supporter_name text;
 alter table public.adoptions add column if not exists supporter_mobile text;
+alter table public.adoptions add column if not exists orchard_slug text references public.orchards(slug) on delete set null;
+alter table public.adoptions add column if not exists tree_count integer not null default 1;
+alter table public.adoptions add column if not exists total_amount integer not null default 5000;
 alter table public.adoptions add column if not exists payment_method text not null default 'UPI';
+alter table public.adoptions add column if not exists payment_status text not null default 'Paid';
 alter table public.adoptions add column if not exists certificate_id text;
+alter table public.adoptions add column if not exists created_at timestamptz not null default now();
 
 create unique index if not exists adoptions_certificate_id_key
   on public.adoptions (certificate_id)
@@ -223,13 +257,25 @@ create policy "users can read own profile"
 drop policy if exists "users can insert own profile" on public.user_profiles;
 create policy "users can insert own profile"
   on public.user_profiles for insert
-  with check (auth.uid() = user_id);
+  with check (
+    auth.uid() = user_id
+    and (
+      role <> 'admin'
+      or exists (select 1 from public.app_admins a where lower(a.email) = lower(auth.jwt() ->> 'email'))
+    )
+  );
 
 drop policy if exists "users can update own profile" on public.user_profiles;
 create policy "users can update own profile"
   on public.user_profiles for update
   using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  with check (
+    auth.uid() = user_id
+    and (
+      role <> 'admin'
+      or exists (select 1 from public.app_admins a where lower(a.email) = lower(auth.jwt() ->> 'email'))
+    )
+  );
 
 drop policy if exists "public can read orchards" on public.orchards;
 create policy "public can read orchards"
@@ -254,13 +300,34 @@ create policy "users can read own verifications or admins read all"
 drop policy if exists "farmers can insert own verification" on public.verifications;
 create policy "farmers can insert own verification"
   on public.verifications for insert
-  with check (auth.uid() = user_id and status = 'Pending');
+  with check (
+    auth.uid() = user_id
+    and status = 'Pending'
+    and exists (
+      select 1 from public.user_profiles p
+      where p.user_id = auth.uid() and p.role = 'farmer'
+    )
+  );
 
 drop policy if exists "farmers can update pending own verification" on public.verifications;
 create policy "farmers can update pending own verification"
   on public.verifications for update
-  using (auth.uid() = user_id and status <> 'Verified')
-  with check (auth.uid() = user_id and status <> 'Verified');
+  using (
+    auth.uid() = user_id
+    and status <> 'Verified'
+    and exists (
+      select 1 from public.user_profiles p
+      where p.user_id = auth.uid() and p.role = 'farmer'
+    )
+  )
+  with check (
+    auth.uid() = user_id
+    and status <> 'Verified'
+    and exists (
+      select 1 from public.user_profiles p
+      where p.user_id = auth.uid() and p.role = 'farmer'
+    )
+  );
 
 drop policy if exists "admins can update verifications" on public.verifications;
 create policy "admins can update verifications"
@@ -276,7 +343,13 @@ create policy "public can read farmer updates"
 drop policy if exists "farmers can insert own updates" on public.farmer_updates;
 create policy "farmers can insert own updates"
   on public.farmer_updates for insert
-  with check (auth.uid() = user_id);
+  with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from public.user_profiles p
+      where p.user_id = auth.uid() and p.role = 'farmer'
+    )
+  );
 
 drop policy if exists "users can read own adoptions or admins read all" on public.adoptions;
 drop policy if exists "authenticated interface can read adoptions" on public.adoptions;
@@ -290,7 +363,13 @@ create policy "users can read own adoptions or admins read all"
 drop policy if exists "supporters can insert own adoptions" on public.adoptions;
 create policy "supporters can insert own adoptions"
   on public.adoptions for insert
-  with check (auth.uid() = user_id);
+  with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from public.user_profiles p
+      where p.user_id = auth.uid() and p.role = 'supporter'
+    )
+  );
 
 drop policy if exists "public can read program settings" on public.program_settings;
 drop policy if exists "authenticated users can read program settings" on public.program_settings;
