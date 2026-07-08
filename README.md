@@ -41,3 +41,11 @@ node tools/check-supabase-readiness.cjs
 ```
 
 The checker reports missing tables and missing columns, so it is safe to run before and after applying the SQL.
+
+You can also verify the frontend control contract:
+
+```bash
+node tools/check-ui-contract.cjs
+```
+
+That check fails if a rendered `data-action` button has no click handler, an export button has no CSV path, the admin email is not present in both the frontend and Supabase seed, Marathi language persistence is missing, or production-facing files contain fixture markers.
