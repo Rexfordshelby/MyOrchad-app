@@ -21,6 +21,16 @@ const supabaseConfig = {
   projectRef: "kbrpjigxqchldjnjyuem",
 };
 
+const requiredSupabaseSchema = {
+  app_admins: ["email", "created_at"],
+  user_profiles: ["user_id", "email", "full_name", "role", "preferred_language", "updated_at"],
+  orchards: ["slug", "name", "farmer_name", "district", "village", "total_trees", "adopted_trees", "available_trees", "farmer_income"],
+  verifications: ["id", "user_id", "farmer_name", "farm_name", "district", "village", "acres", "crop", "status", "total_trees", "updated_at"],
+  farmer_updates: ["id", "user_id", "orchard_slug", "title", "body", "photo_names", "created_at"],
+  adoptions: ["id", "user_id", "supporter_name", "supporter_mobile", "orchard_slug", "tree_count", "total_amount", "payment_method", "payment_status", "certificate_id", "created_at"],
+  program_settings: ["id", "adoption_amount", "crop_focus", "verification_requirement", "update_frequency", "launch_districts", "updated_by", "updated_at"],
+};
+
 const supabaseBridge = {
   client: null,
   status: "loading",
@@ -69,6 +79,7 @@ const supabaseBridge = {
   async sync() {
     if (!this.client) return false;
     this.missingTables = [];
+    await this.checkRequiredSchema();
 
     const [orchardRows, verificationRows, updateRows, adoptionRows, settingsRows] = await Promise.all([
       this.readTable("orchards"),
@@ -77,6 +88,7 @@ const supabaseBridge = {
       this.readTable("adoptions"),
       this.readTable("program_settings"),
       this.readTable("app_admins"),
+      this.readTable("user_profiles"),
     ]);
 
     let loaded = false;
@@ -123,7 +135,7 @@ const supabaseBridge = {
     if (this.missingTables.length) {
       this.status = "schema";
       this.dataSource = "Schema setup needed";
-      this.message = `Missing Supabase tables: ${this.missingTables.join(", ")}. Run supabase/schema.sql in the Supabase SQL editor.`;
+      this.message = `Supabase schema issues: ${this.missingTables.join(", ")}. Run supabase/schema.sql in the Supabase SQL editor.`;
     } else if (loaded) {
       this.status = "live";
       this.dataSource = "Supabase live data";
@@ -150,6 +162,27 @@ const supabaseBridge = {
     } catch {
       return null;
     }
+  },
+  addSchemaIssue(issue) {
+    this.missingTables = [...new Set([...this.missingTables, issue])];
+  },
+  async checkRequiredSchema() {
+    await Promise.all(
+      Object.entries(requiredSupabaseSchema).map(async ([table, columns]) => {
+        try {
+          const { error } = await this.client.from(table).select(columns.join(",")).limit(1);
+          if (!error) return;
+          const message = String(error.message || "");
+          if (error.code === "PGRST205" || message.includes("Could not find the table")) {
+            this.addSchemaIssue(table);
+            return;
+          }
+          this.addSchemaIssue(`${table}: ${message}`);
+        } catch (error) {
+          this.addSchemaIssue(`${table}: ${error.message || "schema check failed"}`);
+        }
+      }),
+    );
   },
   async signOut() {
     if (!this.client) return;
