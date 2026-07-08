@@ -22,12 +22,12 @@ Open `http://127.0.0.1:5177/`.
 
 ## Notes
 
-The app initializes the Supabase browser client with the project publishable key and anon fallback. On startup it reads `orchards`, `verifications`, and `farmer_updates`; if no rows are published yet, the UI shows intentional empty states instead of placeholder records.
+The app initializes the Supabase browser client with the project publishable key and anon fallback. On startup it restores the Supabase Auth session, reads `program_settings`, `orchards`, `verifications`, `farmer_updates`, and `adoptions`, and shows intentional empty states when no live rows are published.
 
-The current sign-in/sign-up flow is a launch UI mock until Supabase Auth is connected. Enforce admin access with Supabase Auth roles and RLS policies before production data goes live.
+The sign-in/sign-up flow uses Supabase Auth. New accounts may require email confirmation depending on the Supabase project setting. Admin access is checked against the `app_admins` table and should be enforced with the RLS policies in `supabase/schema.sql`.
 
 Do not place the Postgres pooler/database connection string in this frontend repo. Keep it server-side only.
 
 ## Supabase setup
 
-Run `supabase/schema.sql` in the Supabase SQL editor to create the starter tables and RLS policies expected by the UI. Tighten public read policies before production launch.
+Run `supabase/schema.sql` in the Supabase SQL editor to create or upgrade the tables and RLS policies expected by the UI. The schema includes profiles, admin email checks, farmer verification writes, adoption/certificate records, farmer updates, and admin-managed program settings.

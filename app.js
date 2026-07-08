@@ -27,6 +27,7 @@ const supabaseBridge = {
   dataSource: "Connecting",
   lastSync: "",
   message: "Connecting to secure MyOrchard records.",
+  authMessage: "",
   init() {
     const supabaseGlobal = typeof supabase !== "undefined" ? supabase : null;
     const supabaseFactory = window.supabase?.createClient || globalThis.supabase?.createClient || supabaseGlobal?.createClient;
@@ -43,13 +44,36 @@ const supabaseBridge = {
     this.dataSource = "Supabase ready";
     this.message = "Reading verified orchard records from Supabase.";
   },
+  async loadSession() {
+    if (!this.client) return;
+    try {
+      const { data, error } = await this.client.auth.getSession();
+      if (error) throw error;
+      if (data?.session) await applyAuthSession(data.session, { silent: true });
+      this.client.auth.onAuthStateChange(async (event, session) => {
+        if (event === "SIGNED_OUT") {
+          clearSession();
+          render();
+          return;
+        }
+        if (session && ["SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) {
+          await applyAuthSession(session, { silent: true });
+          render();
+        }
+      });
+    } catch (error) {
+      this.authMessage = error.message || "Could not restore session.";
+    }
+  },
   async sync() {
     if (!this.client) return false;
 
-    const [orchardRows, verificationRows, updateRows] = await Promise.all([
+    const [orchardRows, verificationRows, updateRows, adoptionRows, settingsRows] = await Promise.all([
       this.readTable("orchards"),
       this.readTable("verifications"),
       this.readTable("farmer_updates"),
+      this.readTable("adoptions"),
+      this.readTable("program_settings"),
     ]);
 
     let loaded = false;
@@ -75,6 +99,15 @@ const supabaseBridge = {
     if (updateRows?.length && liveOrchardRows.length) {
       state.farmerUpdates = updateRows.map(mapSupabaseUpdate);
       loaded = true;
+    }
+
+    if (adoptionRows?.length) {
+      state.adoptions = adoptionRows.map(mapSupabaseAdoption);
+      loaded = true;
+    }
+
+    if (settingsRows?.length) {
+      applyProgramSettings(settingsRows[0]);
     }
 
     this.lastSync = new Date().toLocaleString("en-IN", {
@@ -104,6 +137,10 @@ const supabaseBridge = {
     } catch {
       return null;
     }
+  },
+  async signOut() {
+    if (!this.client) return;
+    await this.client.auth.signOut();
   },
 };
 
@@ -145,12 +182,14 @@ const nav = {
 const state = {
   role: null,
   session: null,
+  lang: localStorage.getItem("myorchard_language") || "en",
   authMode: "signin",
   authRole: "supporter",
   authEmail: "",
   authPassword: "",
   authName: "",
   authMessage: "",
+  authBusy: false,
   adminEmails: [
     "admin@myorchard.app",
     "admin@kalpavrikshaagro.com",
@@ -163,13 +202,28 @@ const state = {
   farmerStep: 0,
   farmerSubmitted: false,
   toast: "",
-  selectedFarmId: "patil",
+  selectedFarmId: "",
   orchardSearch: "",
   districtFilter: "All",
   treeCount: 1,
   paymentMethod: "UPI",
   adoptionComplete: false,
+  adoptionRecord: null,
   updateDraft: "",
+  updateTitle: "",
+  updatePhotos: [],
+  profileEditMode: false,
+  settingsDraft: {
+    adoptionAmount: "5000",
+    cropFocus: "Cashew",
+    verificationRequirement: "KYC, location, tree count",
+    updateFrequency: "Monthly",
+    launchDistricts: "Sindhudurg, Ratnagiri, Kolhapur",
+  },
+  paymentForm: {
+    supporterName: "",
+    mobile: "",
+  },
   supporterProfile: {
     name: "Supporter",
     handle: "@myorchard",
@@ -177,6 +231,12 @@ const state = {
     email: "Add email",
     location: "Add location",
     bio: "Complete your profile to keep certificates, adopted trees, and farm updates in one place.",
+  },
+  supporterProfileDraft: {
+    name: "",
+    mobile: "",
+    location: "",
+    bio: "",
   },
   farmerProfile: {
     handle: "@yourorchard",
@@ -199,6 +259,7 @@ const state = {
   },
   farmerUpdates: [],
   verifications: [],
+  adoptions: [],
 };
 
 const app = document.querySelector("#app");
@@ -242,6 +303,251 @@ function roleLabel(role) {
   return "Team";
 }
 
+const mrText = {
+  "Connecting people with orchards": "बागांशी लोकांना जोडणारे",
+  "MyOrchard app": "मायऑर्चर्ड अॅप",
+  "A verified orchard network where farmers publish trusted farm profiles and supporters follow real tree progress.":
+    "शेतकरी विश्वसनीय बाग प्रोफाइल प्रकाशित करतात आणि समर्थक झाडांची खरी प्रगती पाहतात असे सत्यापित बाग नेटवर्क.",
+  "Verified farms": "सत्यापित शेती",
+  "Live updates": "थेट अपडेट्स",
+  "3 districts": "३ जिल्हे",
+  "Farmer": "शेतकरी",
+  "Supporter": "समर्थक",
+  "Secure account access": "सुरक्षित खाते प्रवेश",
+  "Sign in to continue": "पुढे जाण्यासाठी साइन इन करा",
+  "Create your MyOrchard account": "तुमचे मायऑर्चर्ड खाते तयार करा",
+  "Sign in": "साइन इन",
+  "Sign up": "साइन अप",
+  "Email address": "ईमेल पत्ता",
+  "Password": "पासवर्ड",
+  "Full name": "पूर्ण नाव",
+  "Continue as Supporter": "समर्थक म्हणून पुढे जा",
+  "Continue as Farmer": "शेतकरी म्हणून पुढे जा",
+  "Create Supporter account": "समर्थक खाते तयार करा",
+  "Create Farmer account": "शेतकरी खाते तयार करा",
+  "Sign out": "साइन आउट",
+  "Dashboard": "डॅशबोर्ड",
+  "Orchard": "बाग",
+  "Updates": "अपडेट्स",
+  "Profile": "प्रोफाइल",
+  "Home": "होम",
+  "Orchards": "बागा",
+  "My Adoption": "माझे दत्तक",
+  "Farmers": "शेतकरी",
+  "Verify": "तपासणी",
+  "Payments": "पेमेंट्स",
+  "Reports": "अहवाल",
+  "Settings": "सेटिंग्ज",
+  "Farmer onboarding": "शेतकरी नोंदणी",
+  "Basic information": "मूलभूत माहिती",
+  "Mobile number": "मोबाइल नंबर",
+  "District": "जिल्हा",
+  "Village": "गाव",
+  "Next": "पुढे",
+  "Back": "मागे",
+  "Submit for verification": "तपासणीसाठी सबमिट करा",
+  "Farm updates": "शेती अपडेट्स",
+  "New field update": "नवीन शेत अपडेट",
+  "Update title": "अपडेट शीर्षक",
+  "Update details": "अपडेट तपशील",
+  "Add photos": "फोटो जोडा",
+  "Publish update": "अपडेट प्रकाशित करा",
+  "Edit": "संपादित करा",
+  "Post update": "अपडेट पोस्ट करा",
+  "Welcome": "स्वागत आहे",
+  "Find orchards": "बागा शोधा",
+  "Recommended orchards": "शिफारस केलेल्या बागा",
+  "View all": "सर्व पहा",
+  "Search verified farms and choose trees available for adoption.": "सत्यापित शेत शोधा आणि दत्तकासाठी उपलब्ध झाडे निवडा.",
+  "Reset": "रीसेट",
+  "No orchards published yet": "अजून कोणतीही बाग प्रकाशित नाही",
+  "Adopt a tree": "झाड दत्तक घ्या",
+  "Browse orchards": "बागा पाहा",
+  "No farm selected": "शेत निवडलेले नाही",
+  "Payment": "पेमेंट",
+  "Supporter name": "समर्थकाचे नाव",
+  "Adoption summary": "दत्तक सारांश",
+  "Adoption complete": "दत्तक पूर्ण",
+  "Download certificate": "प्रमाणपत्र डाउनलोड करा",
+  "Contact": "संपर्क",
+  "Adoption history": "दत्तक इतिहास",
+  "Saved farms": "जतन केलेली शेते",
+  "Dashboard overview": "डॅशबोर्ड आढावा",
+  "Verification queue": "तपासणी यादी",
+  "Approve": "मंजूर करा",
+  "Review": "पुनरावलोकन",
+  "Farm verification": "शेती तपासणी",
+  "Export": "निर्यात",
+  "Export CSV": "CSV निर्यात",
+  "Save settings": "सेटिंग्ज जतन करा",
+  "Data connection": "डेटा कनेक्शन",
+  "No pending verifications.": "प्रलंबित तपासणी नाही.",
+};
+
+const mrPlaceholders = {
+  "you@example.com": "tumhi@example.com",
+  "Minimum 8 characters": "किमान ८ अक्षरे",
+  "Your full name": "तुमचे पूर्ण नाव",
+  "Search by farm, farmer, or district": "शेत, शेतकरी किंवा जिल्हा शोधा",
+  "Enter supporter name": "समर्थकाचे नाव लिहा",
+  "Enter mobile number": "मोबाइल नंबर लिहा",
+  "Example: Flowering stage completed": "उदा: फुलोरा टप्पा पूर्ण झाला",
+  "Write what changed in the orchard this month": "या महिन्यात बागेत काय बदलले ते लिहा",
+};
+
+function setLanguage(lang, persist = true) {
+  state.lang = lang === "mr" ? "mr" : "en";
+  if (persist) localStorage.setItem("myorchard_language", state.lang);
+}
+
+function translateTextValue(value) {
+  if (state.lang !== "mr") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  const translated = mrText[trimmed];
+  if (!translated) return value;
+  return value.replace(trimmed, translated);
+}
+
+function applyLanguageToDom() {
+  if (state.lang !== "mr") return;
+  const walker = document.createTreeWalker(app, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || ["SCRIPT", "STYLE", "TEXTAREA"].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    node.nodeValue = translateTextValue(node.nodeValue);
+  });
+  app.querySelectorAll("input[placeholder], textarea[placeholder]").forEach((input) => {
+    const translated = mrPlaceholders[input.getAttribute("placeholder")];
+    if (translated) input.setAttribute("placeholder", translated);
+  });
+}
+
+function currentUserId() {
+  return state.session?.userId || "";
+}
+
+function todayLabel() {
+  return new Date().toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function monthKey(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 7);
+  return date.toISOString().slice(0, 7);
+}
+
+function slugify(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+function clearSession() {
+  state.role = null;
+  state.session = null;
+  state.authPassword = "";
+  state.profileEditMode = false;
+}
+
+function authFailureMessage(error) {
+  const message = String(error?.message || error || "Authentication failed.");
+  if (/invalid login credentials/i.test(message)) return "Email or password is incorrect.";
+  if (/email not confirmed/i.test(message)) return "Please confirm your email before signing in.";
+  if (/user already registered/i.test(message)) return "This email is already registered. Use Sign in.";
+  return message;
+}
+
+async function readAdminAccess(email) {
+  if (!supabaseBridge.client || !email) return false;
+  const { data, error } = await supabaseBridge.client
+    .from("app_admins")
+    .select("email")
+    .eq("email", email)
+    .maybeSingle();
+  if (error) return isAdminEmail(email);
+  return Boolean(data?.email);
+}
+
+async function upsertUserProfile({ session, role, fullName, language = state.lang }) {
+  if (!supabaseBridge.client || !session?.user) return null;
+  const email = normalizeEmail(session.user.email);
+  const fallbackName = fullName || session.user.user_metadata?.full_name || roleLabel(role);
+  const payload = {
+    user_id: session.user.id,
+    email,
+    full_name: fallbackName,
+    role,
+    preferred_language: language,
+    updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabaseBridge.client
+    .from("user_profiles")
+    .upsert(payload, { onConflict: "user_id" })
+    .select()
+    .maybeSingle();
+  if (error) return null;
+  return data;
+}
+
+function applyProfileToState(profile, role) {
+  if (!profile) return;
+  if (profile.preferred_language) setLanguage(profile.preferred_language, false);
+
+  if (role === "supporter") {
+    state.supporterProfile.name = profile.full_name || state.supporterProfile.name;
+    state.supporterProfile.email = profile.email || state.supporterProfile.email;
+    state.supporterProfile.mobile = profile.mobile || state.supporterProfile.mobile;
+    state.supporterProfile.location = profile.location || state.supporterProfile.location;
+    state.supporterProfile.bio = profile.bio || state.supporterProfile.bio;
+  }
+
+  if (role === "farmer") {
+    state.farmerForm.fullName = state.farmerForm.fullName || profile.full_name || "";
+    state.farmerForm.mobile = state.farmerForm.mobile || profile.mobile || "";
+  }
+}
+
+async function applyAuthSession(session, options = {}) {
+  if (!session?.user) return;
+  const email = normalizeEmail(session.user.email);
+  const admin = await readAdminAccess(email);
+  const requestedRole = session.user.user_metadata?.role;
+  const role = admin ? "admin" : ["farmer", "supporter"].includes(requestedRole) ? requestedRole : state.authRole;
+  const fullName = session.user.user_metadata?.full_name || state.authName.trim() || roleLabel(role);
+  const profile = await upsertUserProfile({ session, role, fullName });
+
+  state.session = {
+    userId: session.user.id,
+    email,
+    name: profile?.full_name || fullName,
+    role,
+  };
+  state.role = role;
+  state.authPassword = "";
+  state.authMessage = "";
+  applyProfileToState(profile, role);
+
+  if (role === "admin") state.adminTab = "dashboard";
+  if (role === "farmer") state.farmerTab = state.farmerSubmitted ? "dashboard" : "onboarding";
+  if (role === "supporter") state.supporterTab = "home";
+
+  if (!options.silent) state.toast = role === "admin" ? "Management access unlocked" : `Welcome, ${state.session.name}`;
+}
+
 function firstValue(row, keys, fallback = "") {
   for (const key of keys) {
     const value = row?.[key];
@@ -282,19 +588,59 @@ function mapSupabaseOrchard(row, index) {
 function mapSupabaseVerification(row, index) {
   return {
     id: String(firstValue(row, ["id", "verification_id"], `v-${index + 1}`)),
+    userId: String(firstValue(row, ["user_id"], "")),
     farmer: String(firstValue(row, ["farmer", "farmer_name"], "Registered Farmer")),
     farm: String(firstValue(row, ["farm", "farm_name", "orchard_name"], "Verified Orchard")),
     district: String(firstValue(row, ["district"], "Sindhudurg")),
+    village: String(firstValue(row, ["village"], "")),
+    acres: String(firstValue(row, ["acres"], "0")),
+    crop: String(firstValue(row, ["crop"], "Cashew")),
+    mobile: String(firstValue(row, ["mobile"], "")),
+    bank: String(firstValue(row, ["bank_name", "bank"], "")),
+    account: String(firstValue(row, ["account_number", "account"], "")),
     status: String(firstValue(row, ["status", "verification_status"], "Pending")),
     trees: numberValue(row, ["trees", "total_trees", "totalTrees"], 0),
+    createdAt: String(firstValue(row, ["created_at"], "")),
   };
 }
 
 function mapSupabaseUpdate(row) {
   return {
     title: String(firstValue(row, ["title"], "Farm progress update")),
-    date: String(firstValue(row, ["date", "created_at", "updated_at"], "06 Jul 2026")).slice(0, 16),
+    date: new Date(firstValue(row, ["date", "created_at", "updated_at"], new Date().toISOString())).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }),
     body: String(firstValue(row, ["body", "note", "description"], "New orchard update from the farmer.")),
+    photos: Array.isArray(row?.photo_names) ? row.photo_names : [],
+  };
+}
+
+function mapSupabaseAdoption(row) {
+  return {
+    id: String(firstValue(row, ["id"], "")),
+    supporterName: String(firstValue(row, ["supporter_name"], "")),
+    orchardSlug: String(firstValue(row, ["orchard_slug"], "")),
+    treeCount: numberValue(row, ["tree_count"], 1),
+    totalAmount: numberValue(row, ["total_amount"], 0),
+    paymentMethod: String(firstValue(row, ["payment_method"], "")),
+    status: String(firstValue(row, ["payment_status"], "Paid")),
+    certificateId: String(firstValue(row, ["certificate_id"], "")),
+    createdAt: String(firstValue(row, ["created_at"], "")),
+    month: monthKey(firstValue(row, ["created_at"], "")),
+  };
+}
+
+function applyProgramSettings(row) {
+  if (!row) return;
+  programConfig.adoptionAmount = numberValue(row, ["adoption_amount"], programConfig.adoptionAmount);
+  state.settingsDraft = {
+    adoptionAmount: String(programConfig.adoptionAmount),
+    cropFocus: String(firstValue(row, ["crop_focus"], state.settingsDraft.cropFocus)),
+    verificationRequirement: String(firstValue(row, ["verification_requirement"], state.settingsDraft.verificationRequirement)),
+    updateFrequency: String(firstValue(row, ["update_frequency"], state.settingsDraft.updateFrequency)),
+    launchDistricts: String(firstValue(row, ["launch_districts"], state.settingsDraft.launchDistricts)),
   };
 }
 
@@ -341,17 +687,201 @@ function farmerSubmissionReady() {
   );
 }
 
-function upsertFarmerVerification() {
-  if (!farmerSubmissionReady()) return;
-  const record = {
-    id: `local-${state.farmerForm.orchardName.trim().toLowerCase().replaceAll(/\s+/g, "-")}`,
-    farmer: state.farmerForm.fullName.trim(),
-    farm: state.farmerForm.orchardName.trim(),
+async function upsertFarmerVerification() {
+  if (!farmerSubmissionReady()) return { ok: false, message: "Complete farmer, orchard, tree, and bank details before submitting." };
+  if (!supabaseBridge.client || !currentUserId()) return { ok: false, message: "Sign in with a farmer account before submitting." };
+
+  const payload = {
+    user_id: currentUserId(),
+    farmer_name: state.farmerForm.fullName.trim(),
+    farm_name: state.farmerForm.orchardName.trim(),
     district: state.farmerForm.district,
+    village: state.farmerForm.village.trim(),
+    acres: Number(state.farmerForm.acres) || 0,
+    crop: state.farmerForm.crop,
+    mobile: state.farmerForm.mobile.trim(),
+    bank_name: state.farmerForm.bank.trim(),
+    account_number: state.farmerForm.account.trim(),
+    total_trees: farmerTotalTrees(),
     status: "Pending",
-    trees: farmerTotalTrees(),
+    updated_at: new Date().toISOString(),
   };
+
+  const { data, error } = await supabaseBridge.client
+    .from("verifications")
+    .upsert(payload, { onConflict: "farm_name,farmer_name" })
+    .select()
+    .maybeSingle();
+
+  if (error) return { ok: false, message: error.message };
+  const record = mapSupabaseVerification(data, 0);
   state.verifications = [record, ...state.verifications.filter((item) => item.id !== record.id)];
+  return { ok: true, record };
+}
+
+async function saveFarmerUpdate() {
+  const title = state.updateTitle.trim() || "Farm progress update";
+  const body = state.updateDraft.trim();
+  if (!body) return { ok: false, message: "Write update details before publishing." };
+  if (!supabaseBridge.client || !currentUserId()) return { ok: false, message: "Sign in with a farmer account before publishing updates." };
+
+  const farmSlug = slugify(state.farmerForm.orchardName);
+  const payload = {
+    user_id: currentUserId(),
+    orchard_slug: farmSlug || null,
+    title,
+    body,
+    photo_names: state.updatePhotos,
+  };
+  const { data, error } = await supabaseBridge.client.from("farmer_updates").insert(payload).select().maybeSingle();
+  if (error) return { ok: false, message: error.message };
+  state.farmerUpdates.unshift(mapSupabaseUpdate(data));
+  state.updateTitle = "";
+  state.updateDraft = "";
+  state.updatePhotos = [];
+  return { ok: true };
+}
+
+async function saveAdoption() {
+  const farm = selectedFarm();
+  if (!farm) return { ok: false, message: "Choose a verified farm before payment." };
+  if (!supabaseBridge.client || !currentUserId()) return { ok: false, message: "Sign in with a supporter account before payment." };
+  const supporterName = state.paymentForm.supporterName.trim() || supporterDisplayName();
+  const certificateId = `MYO-${farm.id.toUpperCase()}-${Date.now().toString().slice(-6)}`;
+  const payload = {
+    user_id: currentUserId(),
+    supporter_name: supporterName,
+    supporter_mobile: state.paymentForm.mobile.trim() || null,
+    orchard_slug: farm.id,
+    tree_count: state.treeCount,
+    total_amount: programConfig.adoptionAmount * state.treeCount,
+    payment_method: state.paymentMethod,
+    payment_status: "Paid",
+    certificate_id: certificateId,
+  };
+  const { data, error } = await supabaseBridge.client.from("adoptions").insert(payload).select().maybeSingle();
+  if (error) return { ok: false, message: error.message };
+  const record = mapSupabaseAdoption(data);
+  state.adoptions = [record, ...state.adoptions.filter((item) => item.id !== record.id)];
+  return { ok: true, record };
+}
+
+async function saveVerificationStatus(id, status) {
+  const item = state.verifications.find((entry) => entry.id === id);
+  if (!item) return { ok: false, message: "Verification record not found." };
+  if (!supabaseBridge.client || !hasAdminAccess()) return { ok: false, message: "Sign in with an admin account before reviewing." };
+
+  const { data, error } = await supabaseBridge.client
+    .from("verifications")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .maybeSingle();
+  if (error) return { ok: false, message: error.message };
+
+  const updated = mapSupabaseVerification(data || { ...item, status }, 0);
+  state.verifications = state.verifications.map((entry) => (entry.id === id ? updated : entry));
+
+  if (status === "Verified") {
+    const slug = slugify(item.farm);
+    const orchardPayload = {
+      slug,
+      name: item.farm,
+      farmer_name: item.farmer,
+      district: item.district,
+      village: item.village || "Konkan",
+      acres: Number(item.acres) || 0,
+      total_trees: Number(item.trees) || 0,
+      adopted_trees: 0,
+      available_trees: Number(item.trees) || 0,
+      image_url: assets.trust,
+      summary: `${item.crop || "Cashew"} orchard verified through the MyOrchard program.`,
+      created_by: item.userId || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: orchardData, error: orchardError } = await supabaseBridge.client
+      .from("orchards")
+      .upsert(orchardPayload, { onConflict: "slug" })
+      .select()
+      .maybeSingle();
+    if (!orchardError && orchardData) {
+      const orchard = mapSupabaseOrchard(orchardData, 0);
+      orchards = [orchard, ...orchards.filter((farm) => farm.id !== orchard.id)];
+    }
+  }
+
+  return { ok: true };
+}
+
+function beginSupporterProfileEdit() {
+  state.supporterProfileDraft = {
+    name: state.supporterProfile.name === "Supporter" ? "" : state.supporterProfile.name,
+    mobile: state.supporterProfile.mobile.startsWith("Add ") ? "" : state.supporterProfile.mobile,
+    location: state.supporterProfile.location.startsWith("Add ") ? "" : state.supporterProfile.location,
+    bio: state.supporterProfile.bio,
+  };
+  state.profileEditMode = true;
+}
+
+async function saveSupporterProfile() {
+  const profile = {
+    name: state.supporterProfileDraft.name.trim() || state.supporterProfile.name,
+    mobile: state.supporterProfileDraft.mobile.trim() || "Add mobile number",
+    location: state.supporterProfileDraft.location.trim() || "Add location",
+    bio: state.supporterProfileDraft.bio.trim() || state.supporterProfile.bio,
+  };
+
+  if (supabaseBridge.client && currentUserId()) {
+    const { error } = await supabaseBridge.client
+      .from("user_profiles")
+      .update({
+        full_name: profile.name,
+        mobile: profile.mobile,
+        location: profile.location,
+        bio: profile.bio,
+        preferred_language: state.lang,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", currentUserId());
+    if (error) return { ok: false, message: error.message };
+  }
+
+  state.supporterProfile = {
+    ...state.supporterProfile,
+    name: profile.name,
+    mobile: profile.mobile,
+    location: profile.location,
+    bio: profile.bio,
+  };
+  state.profileEditMode = false;
+  return { ok: true };
+}
+
+async function saveProgramSettings() {
+  const adoptionAmount = Number(state.settingsDraft.adoptionAmount);
+  if (!Number.isFinite(adoptionAmount) || adoptionAmount <= 0) {
+    return { ok: false, message: "Enter a valid adoption amount." };
+  }
+  if (!supabaseBridge.client || !hasAdminAccess()) return { ok: false, message: "Sign in with an admin account before saving settings." };
+
+  const payload = {
+    id: "program",
+    adoption_amount: Math.round(adoptionAmount),
+    crop_focus: state.settingsDraft.cropFocus.trim() || "Cashew",
+    verification_requirement: state.settingsDraft.verificationRequirement.trim() || "KYC, location, tree count",
+    update_frequency: state.settingsDraft.updateFrequency.trim() || "Monthly",
+    launch_districts: state.settingsDraft.launchDistricts.trim() || "Sindhudurg, Ratnagiri, Kolhapur",
+    updated_by: currentUserId(),
+    updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabaseBridge.client
+    .from("program_settings")
+    .upsert(payload, { onConflict: "id" })
+    .select()
+    .maybeSingle();
+  if (error) return { ok: false, message: error.message };
+  applyProgramSettings(data);
+  return { ok: true };
 }
 
 function render(preserveFocus = false) {
@@ -376,6 +906,8 @@ function render(preserveFocus = false) {
     window.lucide.createIcons();
   }
 
+  applyLanguageToDom();
+
   if (preserveKey) {
     const next = document.querySelector(`[data-preserve="${preserveKey}"]`);
     if (next) {
@@ -398,6 +930,15 @@ function renderBrand() {
   `;
 }
 
+function renderLanguageSwitch() {
+  return `
+    <div class="lang-switch" aria-label="Language switch">
+      <button class="lang-btn ${state.lang === "en" ? "active" : ""}" type="button" data-action="language" data-lang="en">EN</button>
+      <button class="lang-btn ${state.lang === "mr" ? "active" : ""}" type="button" data-action="language" data-lang="mr">मराठी</button>
+    </div>
+  `;
+}
+
 function renderToast() {
   if (!state.toast) return "";
   return `<div class="toast" role="status" aria-live="polite">${icon("check-circle-2")} ${escapeHtml(state.toast)}</div>`;
@@ -414,6 +955,7 @@ function renderTopbar(label) {
         <span class="pill gold">${icon("leaf")} ${label}</span>
         ${account}
         <span class="pill">${icon("shield-check")} Kalpavriksha Agro</span>
+        ${renderLanguageSwitch()}
         <button class="btn secondary" type="button" data-action="switch-role">
           ${icon("log-out")} Sign out
         </button>
@@ -429,7 +971,7 @@ function renderWelcome() {
         <img src="${assets.farmer}" alt="Farmer in a verified cashew orchard" />
       </section>
       <section class="welcome-panel">
-        ${renderBrand()}
+        <div class="welcome-brand-row">${renderBrand()} ${renderLanguageSwitch()}</div>
         <div>
           <span class="eyebrow">${icon("leaf")} Connecting people with orchards</span>
           <h1>MyOrchard app</h1>
@@ -507,8 +1049,10 @@ function renderAuthPanel() {
           <span class="label">Password</span>
           <input class="input" type="password" autocomplete="${isSignup ? "new-password" : "current-password"}" value="${escapeHtml(state.authPassword)}" placeholder="Minimum 8 characters" data-field="authPassword" data-preserve="auth-password" />
         </label>
-        <button class="btn auth-submit" type="button" data-action="auth-submit">
-          ${icon(isSignup ? "user-plus" : "arrow-right")} ${isSignup ? `Create ${selectedLabel} account` : `Continue as ${selectedLabel}`}
+        <button class="btn auth-submit" type="button" data-action="auth-submit" ${state.authBusy ? "disabled" : ""}>
+          ${icon(state.authBusy ? "loader-2" : isSignup ? "user-plus" : "arrow-right")} ${
+            state.authBusy ? "Connecting..." : isSignup ? `Create ${selectedLabel} account` : `Continue as ${selectedLabel}`
+          }
         </button>
       </div>
 
@@ -869,14 +1413,20 @@ function renderFarmerUpdates() {
         <div class="section-title"><h2>New field update</h2><span class="tag">${icon("camera")} Monthly</span></div>
         <label class="form-row full">
           <span class="label">Update title</span>
-          <input class="input" value="" placeholder="Example: Flowering stage completed" data-field="newUpdateTitle" data-preserve="new-update-title" />
+          <input class="input" value="${escapeHtml(state.updateTitle)}" placeholder="Example: Flowering stage completed" data-field="updateTitle" data-preserve="new-update-title" />
         </label>
         <label class="form-row full" style="margin-top:14px">
           <span class="label">Update details</span>
           <textarea class="textarea" placeholder="Write what changed in the orchard this month" data-field="updateDraft" data-preserve="update-draft">${escapeHtml(state.updateDraft)}</textarea>
         </label>
+        <input class="sr-only-file" id="update-photo-input" type="file" multiple accept="image/*" data-field="updatePhotos" />
+        ${
+          state.updatePhotos.length
+            ? `<p class="muted" style="margin-top:10px">${escapeHtml(state.updatePhotos.join(", "))}</p>`
+            : ""
+        }
         <div class="page-actions" style="margin-top:14px">
-          <button class="btn secondary" type="button">${icon("image")} Add photos</button>
+          <button class="btn secondary" type="button" data-action="choose-update-photos">${icon("image")} Add photos</button>
           <button class="btn" type="button" data-action="publish-update">${icon("send")} Publish update</button>
         </div>
       </section>
@@ -907,7 +1457,7 @@ function renderFarmerProfile() {
           <p>${state.farmerSubmitted ? "Your orchard profile is ready for verification review." : state.farmerProfile.bio}</p>
         </div>
         <div class="profile-actions">
-          <button class="btn secondary" type="button">${icon("edit-3")} Edit</button>
+          <button class="btn secondary" type="button" data-action="edit-farmer-profile">${icon("edit-3")} Edit</button>
           <button class="btn" type="button" data-action="nav" data-role="farmer" data-tab="updates">${icon("camera")} Post update</button>
         </div>
       </div>
@@ -979,7 +1529,7 @@ function renderSupporterHome() {
         <div class="section-title"><h2>Impact updates</h2>${icon("bar-chart-3")}</div>
         ${state.adoptionComplete
           ? renderTimeline([
-              { title: "Adoption confirmed", date: "06 Jul 2026", body: "Your certificate is ready and the first farm update will follow." },
+              { title: "Adoption confirmed", date: todayLabel(), body: "Your certificate is ready and the first farm update will follow." },
             ])
           : renderEmptyState("No impact updates yet", "Adopt from a verified farm to start receiving progress notes and certificates.", "bell")}
       </aside>
@@ -1151,11 +1701,11 @@ function renderAdoptionPayment() {
         <div class="grid-2" style="margin-top:18px">
           <label class="form-row">
             <span class="label">Supporter name</span>
-            <input class="input" placeholder="Enter supporter name" />
+            <input class="input" placeholder="Enter supporter name" value="${escapeHtml(state.paymentForm.supporterName)}" data-field="paymentSupporterName" data-preserve="payment-name" />
           </label>
           <label class="form-row">
             <span class="label">Mobile number</span>
-            <input class="input" placeholder="Enter mobile number" />
+            <input class="input" placeholder="Enter mobile number" value="${escapeHtml(state.paymentForm.mobile)}" data-field="paymentMobile" data-preserve="payment-mobile" />
           </label>
         </div>
         <div class="card" style="margin-top:18px">
@@ -1194,16 +1744,16 @@ function renderCertificateScreen() {
         <h2>${state.treeCount} Cashew Tree${state.treeCount > 1 ? "s" : ""}</h2>
         <p class="muted">from ${farm.name}, ${farm.district}, Maharashtra</p>
         <div class="meta-row" style="justify-content:center;margin-top:18px">
-          <span class="tag gold">Date: 06 July 2026</span>
-          <span class="tag">Certificate ID: MYO-${farm.id.toUpperCase()}-${state.treeCount}26</span>
+          <span class="tag gold">Date: ${todayLabel()}</span>
+          <span class="tag">Certificate ID: ${escapeHtml(state.adoptionRecord?.certificateId || `MYO-${farm.id.toUpperCase()}-${state.treeCount}`)}</span>
         </div>
       </section>
       <aside class="card">
         <div class="section-title"><h2>Adoption updates</h2>${icon("bell")}</div>
         ${renderTimeline([
-          { title: "Adoption confirmed", date: "06 Jul 2026", body: `${state.treeCount} tree adoption added to ${farm.name}.` },
-          { title: "Receipt generated", date: "06 Jul 2026", body: `${money(programConfig.adoptionAmount * state.treeCount)} recorded for this adoption.` },
-          { title: "First field update", date: "Expected 06 Aug 2026", body: "The farmer will share a monthly photo and growth note." },
+          { title: "Adoption confirmed", date: todayLabel(), body: `${state.treeCount} tree adoption added to ${farm.name}.` },
+          { title: "Receipt generated", date: todayLabel(), body: `${money(programConfig.adoptionAmount * state.treeCount)} recorded for this adoption.` },
+          { title: "First field update", date: "After farmer update", body: "The farmer will share a monthly photo and growth note." },
         ])}
         <div class="page-actions" style="margin-top:18px">
           <button class="btn" type="button" data-action="download-certificate">${icon("download")} Download certificate</button>
@@ -1222,8 +1772,8 @@ function renderSupporterUpdates() {
         <div class="section-title"><h2>${farm ? farm.name : "Farm updates"}</h2><span class="tag">${state.adoptionComplete ? `${state.treeCount} tree${state.treeCount > 1 ? "s" : ""}` : "No adoption yet"}</span></div>
         ${state.adoptionComplete && farm
           ? renderTimeline([
-              { title: "Adoption confirmed", date: "06 Jul 2026", body: `${state.treeCount} tree adoption added to ${farm.name}.` },
-              { title: "First field update", date: "Expected 06 Aug 2026", body: "The farmer will share a monthly photo and growth note." },
+              { title: "Adoption confirmed", date: todayLabel(), body: `${state.treeCount} tree adoption added to ${farm.name}.` },
+              { title: "First field update", date: "After farmer update", body: "The farmer will share a monthly photo and growth note." },
             ])
           : renderEmptyState("No updates yet", "Updates will begin after you adopt from a verified orchard.", "bell")}
       </section>
@@ -1252,7 +1802,7 @@ function renderSupporterProfile() {
           <p>${state.supporterProfile.bio}</p>
         </div>
         <div class="profile-actions">
-          <button class="btn secondary" type="button">${icon("edit-3")} Edit</button>
+          <button class="btn secondary" type="button" data-action="edit-supporter-profile">${icon("edit-3")} Edit</button>
           <button class="btn" type="button" data-action="nav" data-role="supporter" data-tab="orchards">${icon("tree-pine")} Adopt</button>
         </div>
       </div>
@@ -1266,11 +1816,13 @@ function renderSupporterProfile() {
     <div class="profile-grid">
       <section class="card">
         <div class="section-title"><h2>Contact</h2><span class="tag">${icon("lock")} Private</span></div>
-        <div class="info-list">
-          <div><span>Mobile</span><strong>${state.supporterProfile.mobile}</strong></div>
-          <div><span>Email</span><strong>${state.supporterProfile.email}</strong></div>
-          <div><span>Location</span><strong>${state.supporterProfile.location}</strong></div>
-        </div>
+        ${state.profileEditMode ? renderSupporterProfileEditor() : `
+          <div class="info-list">
+            <div><span>Mobile</span><strong>${state.supporterProfile.mobile}</strong></div>
+            <div><span>Email</span><strong>${state.supporterProfile.email}</strong></div>
+            <div><span>Location</span><strong>${state.supporterProfile.location}</strong></div>
+          </div>
+        `}
       </section>
       <section class="card">
         <div class="section-title"><h2>Adoption history</h2>${icon("badge-check")}</div>
@@ -1284,6 +1836,33 @@ function renderSupporterProfile() {
         <div class="section-title"><h2>Saved farms</h2><button class="btn secondary" type="button" data-action="nav" data-role="supporter" data-tab="orchards">${icon("search")} Browse</button></div>
         ${orchards.length ? renderChecklist(orchards.slice(0, 3).map((farm) => farm.name)) : renderEmptyState("No saved farms yet", "Browse verified farms and save the ones you want to revisit.", "search")}
       </section>
+    </div>
+  `;
+}
+
+function renderSupporterProfileEditor() {
+  return `
+    <div class="form-grid profile-edit-grid">
+      <label class="form-row full">
+        <span class="label">Full name</span>
+        <input class="input" value="${escapeHtml(state.supporterProfileDraft.name)}" data-field="supporterName" data-preserve="supporter-name" />
+      </label>
+      <label class="form-row full">
+        <span class="label">Mobile number</span>
+        <input class="input" value="${escapeHtml(state.supporterProfileDraft.mobile)}" data-field="supporterMobile" data-preserve="supporter-mobile" />
+      </label>
+      <label class="form-row full">
+        <span class="label">Location</span>
+        <input class="input" value="${escapeHtml(state.supporterProfileDraft.location)}" data-field="supporterLocation" data-preserve="supporter-location" />
+      </label>
+      <label class="form-row full">
+        <span class="label">Bio</span>
+        <textarea class="textarea compact" data-field="supporterBio" data-preserve="supporter-bio">${escapeHtml(state.supporterProfileDraft.bio)}</textarea>
+      </label>
+    </div>
+    <div class="page-actions" style="margin-top:12px">
+      <button class="btn secondary" type="button" data-action="cancel-profile-edit">${icon("x")} Cancel</button>
+      <button class="btn" type="button" data-action="save-supporter-profile">${icon("save")} Save profile</button>
     </div>
   `;
 }
@@ -1383,27 +1962,24 @@ function renderAdminVerifications() {
 
 function renderAdminPayments() {
   const totals = orchardTotals();
-  const collected = totals.adopted * programConfig.adoptionAmount;
+  const collected = state.adoptions.reduce((sum, adoption) => sum + Number(adoption.totalAmount || 0), 0);
   return `
     ${renderPageTitle("Payments", "Track adoption receipts, certificate readiness, and payout operations.")}
     <div class="dashboard-grid">
       ${metric("Collected", money(collected), "banknote", "From live adoption counts")}
-      ${metric("Adopted trees", totals.adopted, "tree-pine", "Across published farms")}
-      ${metric("Receipts", totals.adopted, "badge-check", "Certificate-linked records")}
+      ${metric("Adopted trees", state.adoptions.reduce((sum, adoption) => sum + Number(adoption.treeCount || 0), 0), "tree-pine", "Across saved adoptions")}
+      ${metric("Receipts", state.adoptions.length, "badge-check", "Certificate-linked records")}
       ${metric("Pending review", state.verifications.filter((item) => item.status === "Pending").length, "clock", "Farmer records")}
     </div>
     <div class="card">
       <div class="section-title"><h2>Recent collections</h2><button class="btn secondary" type="button" data-action="export-csv" data-export="admin-payments">${icon("download")} Export CSV</button></div>
       <div class="list">
-        ${orchards.filter((farm) => Number(farm.adopted) > 0).length ? orchards.filter((farm) => Number(farm.adopted) > 0).map((farm) => {
-          const trees = Number(farm.adopted) || 0;
-          const total = trees * programConfig.adoptionAmount;
-          return `
+        ${state.adoptions.length ? state.adoptions.map((adoption) => `
           <div class="list-card compact">
-            <div><h3>${farm.name}</h3><p>${farm.farmer} - ${trees} adopted trees</p></div>
-            <span class="pill">${money(total)}</span>
+            <div><h3>${escapeHtml(adoption.certificateId || "Certificate pending")}</h3><p>${escapeHtml(adoption.supporterName)} - ${adoption.treeCount} adopted tree${adoption.treeCount > 1 ? "s" : ""}</p></div>
+            <span class="pill">${money(adoption.totalAmount)}</span>
           </div>
-        `}).join("") : renderEmptyState("No payment records yet", "Collections will appear after supporters complete adoption checkout.", "wallet")}
+        `).join("") : renderEmptyState("No payment records yet", "Collections will appear after supporters complete adoption checkout.", "wallet")}
       </div>
     </div>
   `;
@@ -1432,13 +2008,13 @@ function renderAdminSettings() {
     <div class="grid-2">
       <div class="form-panel">
         <div class="form-grid">
-          <label class="form-row"><span class="label">Adoption amount per tree</span><input class="input" value="${programConfig.adoptionAmount}" /></label>
-          <label class="form-row"><span class="label">Crop focus</span><input class="input" value="Cashew" /></label>
-          <label class="form-row"><span class="label">Verification requirement</span><input class="input" value="KYC, location, tree count" /></label>
-          <label class="form-row"><span class="label">Update frequency</span><input class="input" value="Monthly" /></label>
-          <label class="form-row full"><span class="label">Launch districts</span><input class="input" value="Sindhudurg, Ratnagiri, Kolhapur" /></label>
+          <label class="form-row"><span class="label">Adoption amount per tree</span><input class="input" value="${escapeHtml(state.settingsDraft.adoptionAmount)}" data-setting="adoptionAmount" data-preserve="setting-adoption" /></label>
+          <label class="form-row"><span class="label">Crop focus</span><input class="input" value="${escapeHtml(state.settingsDraft.cropFocus)}" data-setting="cropFocus" data-preserve="setting-crop" /></label>
+          <label class="form-row"><span class="label">Verification requirement</span><input class="input" value="${escapeHtml(state.settingsDraft.verificationRequirement)}" data-setting="verificationRequirement" data-preserve="setting-verification" /></label>
+          <label class="form-row"><span class="label">Update frequency</span><input class="input" value="${escapeHtml(state.settingsDraft.updateFrequency)}" data-setting="updateFrequency" data-preserve="setting-frequency" /></label>
+          <label class="form-row full"><span class="label">Launch districts</span><input class="input" value="${escapeHtml(state.settingsDraft.launchDistricts)}" data-setting="launchDistricts" data-preserve="setting-districts" /></label>
         </div>
-        <div class="page-actions" style="margin-top:18px"><button class="btn">${icon("save")} Save settings</button></div>
+        <div class="page-actions" style="margin-top:18px"><button class="btn" type="button" data-action="save-settings">${icon("save")} Save settings</button></div>
       </div>
       ${renderSupabaseStatus()}
     </div>
@@ -1531,14 +2107,22 @@ function renderChecklist(items) {
 }
 
 function renderChart() {
-  const bars = [
-    ["Jan", 38],
-    ["Feb", 52],
-    ["Mar", 48],
-    ["Apr", 64],
-    ["May", 73],
-    ["Jun", 88],
-  ];
+  if (!state.adoptions.length) {
+    return renderEmptyState("No adoption trend yet", "Monthly adoption bars will appear after live adoption records are saved.", "bar-chart-3");
+  }
+  const monthCounts = new Map();
+  state.adoptions.forEach((adoption) => {
+    monthCounts.set(adoption.month, (monthCounts.get(adoption.month) || 0) + adoption.treeCount);
+  });
+  const max = Math.max(...monthCounts.values(), 1);
+  const bars = Array.from(monthCounts.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-6)
+    .map(([month, count]) => {
+      const date = new Date(`${month}-01T00:00:00Z`);
+      const label = date.toLocaleString("en-IN", { month: "short" });
+      return [label, Math.max(8, Math.round((count / max) * 90))];
+    });
   return `
     <div class="chart">
       ${bars.map(([label, height]) => `<div class="bar-wrap"><div class="bar" style="height:${height}%"></div><span>${label}</span></div>`).join("")}
@@ -1592,19 +2176,29 @@ function exportCsv(type) {
   if (type === "farmer-adoptions") {
     const rows = [
       ["Supporter", "Trees", "Date", "Status"],
-      ["", "", "", "No adoption records yet"],
+      ...state.adoptions.map((adoption) => [
+        adoption.supporterName,
+        String(adoption.treeCount),
+        adoption.createdAt ? new Date(adoption.createdAt).toLocaleDateString("en-IN") : "",
+        adoption.status,
+      ]),
     ];
+    if (rows.length === 1) rows.push(["", "", "", "No adoption records yet"]);
     return downloadTextFile("myorchard-farmer-adoptions.csv", toCsv(rows), "text/csv");
   }
 
   if (type === "admin-payments") {
     const rows = [
-      ["Farm", "Farmer", "Adopted trees", "Total amount"],
-      ...orchards
-        .filter((farm) => Number(farm.adopted) > 0)
-        .map((farm) => [farm.name, farm.farmer, String(farm.adopted), String((Number(farm.adopted) || 0) * programConfig.adoptionAmount)]),
+      ["Certificate", "Supporter", "Trees", "Total amount", "Status"],
+      ...state.adoptions.map((adoption) => [
+        adoption.certificateId,
+        adoption.supporterName,
+        String(adoption.treeCount),
+        String(adoption.totalAmount),
+        adoption.status,
+      ]),
     ];
-    if (rows.length === 1) rows.push(["", "", "", "No payment records yet"]);
+    if (rows.length === 1) rows.push(["", "", "", "", "No payment records yet"]);
     return downloadTextFile("myorchard-admin-payments.csv", toCsv(rows), "text/csv");
   }
 
@@ -1621,28 +2215,21 @@ function downloadCertificate() {
     `${state.treeCount} Cashew Tree${state.treeCount > 1 ? "s" : ""}`,
     `from ${farm.name}, ${farm.district}, Maharashtra.`,
     "",
-    "Date: 06 July 2026",
-    `Certificate ID: MYO-${farm.id.toUpperCase()}-${state.treeCount}26`,
+    `Date: ${todayLabel()}`,
+    `Certificate ID: ${state.adoptionRecord?.certificateId || `MYO-${farm.id.toUpperCase()}-${state.treeCount}`}`,
   ].join("\n");
   return downloadTextFile("myorchard-adoption-certificate.txt", content, "text/plain");
 }
 
-function handleAuthSubmit() {
+async function handleAuthSubmit() {
   const email = normalizeEmail(state.authEmail);
   const password = state.authPassword;
   const name = state.authName.trim();
   const errors = [];
-  const teamEmail = isAdminEmail(email);
 
   if (state.authMode === "signup" && !name) errors.push("Enter your full name.");
   if (!isValidEmail(email)) errors.push("Enter a valid email address.");
   if (password.length < 8) errors.push("Use a password with at least 8 characters.");
-
-  if (state.authMode === "signup" && teamEmail) {
-    state.authMessage = "This approved team email is already managed by Kalpavriksha Agro. Please use Sign in.";
-    render(true);
-    return;
-  }
 
   if (errors.length) {
     state.authMessage = errors[0];
@@ -1650,41 +2237,69 @@ function handleAuthSubmit() {
     return;
   }
 
-  const nextRole = teamEmail ? "admin" : state.authRole;
-  const displayName = name || (nextRole === "admin" ? "Team member" : roleLabel(nextRole));
-  state.session = {
-    role: nextRole,
-    email,
-    name: displayName,
-  };
-  state.role = nextRole;
-  state.authPassword = "";
+  if (!supabaseBridge.client) {
+    state.authMessage = "Supabase is not available. Check the backend connection before signing in.";
+    render(true);
+    return;
+  }
+
+  state.authBusy = true;
   state.authMessage = "";
-  state.toast = nextRole === "admin" ? "Management access unlocked" : `Welcome, ${displayName}`;
+  render(true);
 
-  if (nextRole === "admin") {
-    state.adminTab = "dashboard";
+  try {
+    if (state.authMode === "signup") {
+      const { data, error } = await supabaseBridge.client.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: name,
+            role: state.authRole,
+            preferred_language: state.lang,
+          },
+        },
+      });
+      if (error) throw error;
+      if (data?.session) {
+        await applyAuthSession(data.session);
+        await supabaseBridge.sync();
+      } else {
+        state.authMessage = "Account created. Please confirm your email, then sign in.";
+        state.authMode = "signin";
+      }
+      return;
+    }
+
+    const { data, error } = await supabaseBridge.client.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    await applyAuthSession(data.session);
+    await supabaseBridge.sync();
+  } catch (error) {
+    state.authMessage = authFailureMessage(error);
+  } finally {
+    state.authBusy = false;
+    render();
   }
-
-  if (nextRole === "farmer") {
-    state.farmerTab = state.farmerSubmitted ? "dashboard" : "onboarding";
-    if (!state.farmerForm.fullName && displayName !== "Farmer") state.farmerForm.fullName = displayName;
-  }
-
-  if (nextRole === "supporter") {
-    state.supporterTab = "home";
-    state.supporterProfile.email = email;
-    if (displayName !== "Supporter") state.supporterProfile.name = displayName;
-  }
-
-  render();
 }
 
-document.addEventListener("click", (event) => {
+document.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-action]");
   if (!target) return;
 
   const action = target.dataset.action;
+
+  if (action === "language") {
+    setLanguage(target.dataset.lang);
+    if (supabaseBridge.client && currentUserId()) {
+      await supabaseBridge.client
+        .from("user_profiles")
+        .update({ preferred_language: state.lang, updated_at: new Date().toISOString() })
+        .eq("user_id", currentUserId());
+    }
+    render(true);
+    return;
+  }
 
   if (action === "choose-role") {
     state.authMode = "signup";
@@ -1710,14 +2325,13 @@ document.addEventListener("click", (event) => {
   }
 
   if (action === "auth-submit") {
-    handleAuthSubmit();
+    await handleAuthSubmit();
     return;
   }
 
   if (action === "switch-role") {
-    state.role = null;
-    state.session = null;
-    state.authPassword = "";
+    await supabaseBridge.signOut();
+    clearSession();
     state.toast = "";
     render();
     return;
@@ -1729,6 +2343,39 @@ document.addEventListener("click", (event) => {
       state.toast = `${filename} downloaded`;
       render();
     }
+    return;
+  }
+
+  if (action === "edit-farmer-profile") {
+    state.farmerTab = "onboarding";
+    state.toast = "Edit farmer and orchard details in onboarding.";
+    render();
+    return;
+  }
+
+  if (action === "edit-supporter-profile") {
+    beginSupporterProfileEdit();
+    render();
+    return;
+  }
+
+  if (action === "cancel-profile-edit") {
+    state.profileEditMode = false;
+    render();
+    return;
+  }
+
+  if (action === "save-supporter-profile") {
+    const result = await saveSupporterProfile();
+    state.toast = result.ok ? "Profile saved" : result.message;
+    render();
+    return;
+  }
+
+  if (action === "save-settings") {
+    const result = await saveProgramSettings();
+    state.toast = result.ok ? "Settings saved" : result.message;
+    render();
     return;
   }
 
@@ -1790,12 +2437,6 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  if (action === "complete-payment") {
-    state.adoptionComplete = true;
-    render();
-    return;
-  }
-
   if (action === "new-adoption") {
     state.adoptionComplete = false;
     state.treeCount = 1;
@@ -1822,7 +2463,12 @@ document.addEventListener("click", (event) => {
       render();
       return;
     }
-    upsertFarmerVerification();
+    const result = await upsertFarmerVerification();
+    if (!result.ok) {
+      state.toast = result.message;
+      render();
+      return;
+    }
     state.farmerSubmitted = true;
     state.farmerTab = "dashboard";
     state.toast = "Orchard submitted for verification";
@@ -1830,25 +2476,35 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if (action === "choose-update-photos") {
+    document.querySelector("#update-photo-input")?.click();
+    return;
+  }
+
   if (action === "publish-update") {
-    const title = document.querySelector('[data-field="newUpdateTitle"]')?.value.trim() || "Farm progress update";
-    const body = state.updateDraft.trim();
-    if (body) {
-      state.farmerUpdates.unshift({
-        title,
-        date: "06 Jul 2026",
-        body,
-      });
-      state.updateDraft = "";
-      render();
-    }
+    const result = await saveFarmerUpdate();
+    state.toast = result.ok ? "Farm update published" : result.message;
+    render();
     return;
   }
 
   if (action === "admin-verify" || action === "admin-review") {
-    const item = state.verifications.find((entry) => entry.id === target.dataset.id);
-    if (item) item.status = action === "admin-verify" ? "Verified" : "Needs review";
+    const result = await saveVerificationStatus(target.dataset.id, action === "admin-verify" ? "Verified" : "Needs review");
+    state.toast = result.ok ? `Verification marked ${action === "admin-verify" ? "Verified" : "Needs review"}` : result.message;
     render();
+    return;
+  }
+
+  if (action === "complete-payment") {
+    const result = await saveAdoption();
+    if (result.ok) {
+      state.adoptionComplete = true;
+      state.adoptionRecord = result.record;
+    } else {
+      state.toast = result.message;
+    }
+    render();
+    return;
   }
 });
 
@@ -1865,9 +2521,49 @@ document.addEventListener("input", (event) => {
     return;
   }
 
+  if (target.dataset.field === "updateTitle") {
+    state.updateTitle = target.value;
+    return;
+  }
+
+  if (target.dataset.field === "paymentSupporterName") {
+    state.paymentForm.supporterName = target.value;
+    return;
+  }
+
+  if (target.dataset.field === "paymentMobile") {
+    state.paymentForm.mobile = target.value;
+    return;
+  }
+
+  if (target.dataset.field === "supporterName") {
+    state.supporterProfileDraft.name = target.value;
+    return;
+  }
+
+  if (target.dataset.field === "supporterMobile") {
+    state.supporterProfileDraft.mobile = target.value;
+    return;
+  }
+
+  if (target.dataset.field === "supporterLocation") {
+    state.supporterProfileDraft.location = target.value;
+    return;
+  }
+
+  if (target.dataset.field === "supporterBio") {
+    state.supporterProfileDraft.bio = target.value;
+    return;
+  }
+
   if (["authEmail", "authPassword", "authName"].includes(target.dataset.field)) {
     state[target.dataset.field] = target.value;
     state.authMessage = "";
+    return;
+  }
+
+  if (target.dataset.setting && target.dataset.setting in state.settingsDraft) {
+    state.settingsDraft[target.dataset.setting] = target.value;
     return;
   }
 
@@ -1889,8 +2585,19 @@ document.addEventListener("change", (event) => {
     state.districtFilter = target.value;
     render();
   }
+
+  if (target.dataset.field === "updatePhotos") {
+    state.updatePhotos = Array.from(target.files || []).map((file) => file.name);
+    render();
+  }
 });
 
-supabaseBridge.init();
-render();
-supabaseBridge.sync().then(() => render());
+async function bootApp() {
+  supabaseBridge.init();
+  render();
+  await supabaseBridge.loadSession();
+  await supabaseBridge.sync();
+  render();
+}
+
+bootApp();
