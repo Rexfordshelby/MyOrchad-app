@@ -21,6 +21,8 @@ const supabaseConfig = {
   projectRef: "kbrpjigxqchldjnjyuem",
 };
 
+const backendSetupMessage = "Backend setup is still pending. Run supabase/schema.sql before account access.";
+
 const requiredSupabaseSchema = {
   app_admins: ["email", "created_at"],
   user_profiles: ["user_id", "email", "full_name", "role", "preferred_language", "updated_at"],
@@ -133,9 +135,7 @@ const supabaseBridge = {
     });
 
     if (this.missingTables.length) {
-      this.status = "schema";
-      this.dataSource = "Schema setup needed";
-      this.message = `Supabase schema issues: ${this.missingTables.join(", ")}. Run supabase/schema.sql in the Supabase SQL editor.`;
+      markSchemaSetupNeeded();
     } else if (loaded) {
       this.status = "live";
       this.dataSource = "Supabase live data";
@@ -390,6 +390,8 @@ const mrText = {
   "Use a password with at least 8 characters.": "किमान ८ अक्षरांचा पासवर्ड वापरा.",
   "Supabase is not available. Check the backend connection before signing in.":
     "Supabase उपलब्ध नाही. साइन इन करण्यापूर्वी backend connection तपासा.",
+  "Backend setup needed": "Backend setup आवश्यक आहे",
+  [backendSetupMessage]: "Backend setup अजून बाकी आहे. account access पूर्वी supabase/schema.sql चालवा.",
   "Account created. Please confirm your email, then sign in.":
     "खाते तयार झाले. कृपया ईमेल पुष्टी करा, मग साइन इन करा.",
   "Email or password is incorrect.": "ईमेल किंवा पासवर्ड चुकीचा आहे.",
@@ -518,6 +520,33 @@ function applyLanguageToDom() {
     const translated = mrPlaceholders[input.getAttribute("placeholder")];
     if (translated) input.setAttribute("placeholder", translated);
   });
+}
+
+function markSchemaSetupNeeded() {
+  supabaseBridge.status = "schema";
+  supabaseBridge.dataSource = "Schema setup needed";
+  supabaseBridge.message = `Supabase schema issues: ${supabaseBridge.missingTables.join(", ")}. Run supabase/schema.sql in the Supabase SQL editor.`;
+}
+
+async function ensureAccountAccessReady() {
+  if (!supabaseBridge.client) {
+    return { ok: false, message: "Supabase is not available. Check the backend connection before signing in." };
+  }
+
+  if (supabaseBridge.status === "schema") {
+    return { ok: false, message: backendSetupMessage };
+  }
+
+  if (["loading", "connected"].includes(supabaseBridge.status)) {
+    supabaseBridge.missingTables = [];
+    await supabaseBridge.checkRequiredSchema();
+    if (supabaseBridge.missingTables.length) {
+      markSchemaSetupNeeded();
+      return { ok: false, message: backendSetupMessage };
+    }
+  }
+
+  return { ok: true };
 }
 
 function currentUserId() {
@@ -1131,6 +1160,14 @@ function renderWelcome() {
 function renderAuthPanel() {
   const isSignup = state.authMode === "signup";
   const selectedLabel = roleLabel(state.authRole);
+  const setupNeeded = supabaseBridge.status === "schema";
+  const authUnavailable = !supabaseBridge.client;
+  const authDisabled = state.authBusy || setupNeeded || authUnavailable;
+  const accessMessage = setupNeeded
+    ? backendSetupMessage
+    : authUnavailable
+      ? "Supabase is not available. Check the backend connection before signing in."
+      : state.authMessage;
   return `
     <section class="auth-card" aria-label="Account access">
       <div class="auth-head">
@@ -1174,16 +1211,22 @@ function renderAuthPanel() {
           <span class="label">Password</span>
           <input class="input" type="password" autocomplete="${isSignup ? "new-password" : "current-password"}" value="${escapeHtml(state.authPassword)}" placeholder="Minimum 8 characters" data-field="authPassword" data-preserve="auth-password" />
         </label>
-        <button class="btn auth-submit" type="button" data-action="auth-submit" ${state.authBusy ? "disabled" : ""}>
-          ${icon(state.authBusy ? "loader-2" : isSignup ? "user-plus" : "arrow-right")} ${
-            state.authBusy ? "Connecting..." : isSignup ? `Create ${selectedLabel} account` : `Continue as ${selectedLabel}`
+        <button class="btn auth-submit" type="button" data-action="auth-submit" ${authDisabled ? "disabled" : ""}>
+          ${icon(state.authBusy ? "loader-2" : setupNeeded || authUnavailable ? "database-zap" : isSignup ? "user-plus" : "arrow-right")} ${
+            state.authBusy
+              ? "Connecting..."
+              : setupNeeded || authUnavailable
+                ? "Backend setup needed"
+                : isSignup
+                  ? `Create ${selectedLabel} account`
+                  : `Continue as ${selectedLabel}`
           }
         </button>
       </div>
 
       ${
-        state.authMessage
-          ? `<p class="auth-message" role="status" aria-live="polite">${escapeHtml(state.authMessage)}</p>`
+        accessMessage
+          ? `<p class="auth-message" role="status" aria-live="polite">${escapeHtml(accessMessage)}</p>`
           : `<p class="auth-note">${icon("lock-keyhole")} Approved team emails unlock management tools after sign in.</p>`
       }
     </section>
@@ -2414,8 +2457,9 @@ async function handleAuthSubmit() {
     return;
   }
 
-  if (!supabaseBridge.client) {
-    state.authMessage = "Supabase is not available. Check the backend connection before signing in.";
+  const backend = await ensureAccountAccessReady();
+  if (!backend.ok) {
+    state.authMessage = backend.message;
     render(true);
     return;
   }

@@ -189,6 +189,9 @@ async function navigate(client, url) {
       `document.readyState === "complete" && !!window.MyOrchardSupabase && document.querySelector("#app")?.children.length > 0`,
     ).catch(() => false),
   12000);
+  await waitFor(() =>
+    evaluate(client, `["schema", "live", "empty"].includes(window.MyOrchardSupabase?.status)`).catch(() => false),
+  15000).catch(() => {});
   await wait(900);
 }
 
@@ -240,6 +243,9 @@ async function snapshot(client) {
         authTabsVisible: authTabs.length,
         visibleActions: visibleActions.length,
         languageButtons: [...document.querySelectorAll('[data-action="language"]')].filter(visible).map((el) => el.dataset.lang),
+        supabaseStatus: window.MyOrchardSupabase?.status || "",
+        authSubmitDisabled: Boolean(document.querySelector('[data-action="auth-submit"]')?.disabled),
+        authMessageText: document.querySelector(".auth-message")?.textContent?.trim() || "",
         brokenImages: [...document.images].filter((img) => img.complete && img.naturalWidth === 0).map((img) => img.getAttribute("src") || img.currentSrc),
         consoleStatus: window.MyOrchardSupabase?.dataSource || "",
       };
@@ -256,6 +262,10 @@ function validateWelcomeState(state, label) {
   assert(state.visibleActions >= 6, `${label}: too few visible actions`);
   assert(state.languageButtons.includes("en") && state.languageButtons.includes("mr"), `${label}: language buttons are missing`);
   assert(state.brokenImages.length === 0, `${label}: broken images detected: ${state.brokenImages.join(", ")}`);
+  if (state.supabaseStatus === "schema") {
+    assert(state.authSubmitDisabled, `${label}: auth submit should be disabled while backend schema setup is missing`);
+    assert(state.authMessageText.includes("Backend setup"), `${label}: backend setup message is missing`);
+  }
 }
 
 function cleanup() {
@@ -329,6 +339,11 @@ async function main() {
     console.log(`[OK] ${result.label}: ${result.viewport.width}x${result.viewport.height}, actions ${result.visibleActions}, scroll ${result.scrollWidth}x${result.scrollHeight}`);
   }
   console.log("[OK] Public users do not see admin tools");
+  if (results.some((result) => result.supabaseStatus === "schema" && result.authSubmitDisabled)) {
+    console.log("[OK] Account access is guarded while backend schema setup is incomplete");
+  } else {
+    console.log("[OK] Account access is open because backend schema setup did not report issues");
+  }
   console.log("[OK] Marathi and English language switches update UI, persistence, and document lang");
   console.log("[OK] No browser console/runtime errors");
 }

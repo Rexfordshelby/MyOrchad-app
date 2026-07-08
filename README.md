@@ -36,6 +36,8 @@ Use `supabase/README.md` as the dashboard migration runbook. After applying `sch
 
 If Admin > Settings shows `Schema setup needed`, the frontend is connected to Supabase but the live project has not run the latest `supabase/schema.sql` yet.
 
+While schema setup is missing, the welcome auth panel disables account entry and shows the migration message instead of letting farmers or supporters enter a half-ready flow.
+
 You can verify the live project from this repo:
 
 ```bash
