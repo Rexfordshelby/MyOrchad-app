@@ -21,8 +21,16 @@ const checks = [
     command: [process.execPath, "--check", "tools/check-schema-contract.cjs"],
   },
   {
+    name: "Browser smoke checker syntax",
+    command: [process.execPath, "--check", "tools/check-browser-smoke.cjs"],
+  },
+  {
     name: "Frontend UI contract",
     command: [process.execPath, "tools/check-ui-contract.cjs"],
+  },
+  {
+    name: "Rendered app browser smoke",
+    command: [process.execPath, "tools/check-browser-smoke.cjs"],
   },
   {
     name: "Local Supabase schema contract",

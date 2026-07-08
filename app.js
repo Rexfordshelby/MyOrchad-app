@@ -481,8 +481,13 @@ for (const dictionary of [mrText, mrPlaceholders]) {
   });
 }
 
+function syncDocumentLanguage() {
+  document.documentElement.lang = state.lang === "mr" ? "mr" : "en";
+}
+
 function setLanguage(lang, persist = true) {
   state.lang = lang === "mr" ? "mr" : "en";
+  syncDocumentLanguage();
   if (persist) localStorage.setItem("myorchard_language", state.lang);
 }
 
@@ -1006,6 +1011,8 @@ function render(preserveFocus = false) {
   const active = document.activeElement;
   const preserveKey = preserveFocus ? active?.dataset?.preserve : null;
   const caret = preserveKey && "selectionStart" in active ? active.selectionStart : null;
+
+  syncDocumentLanguage();
 
   if (!state.role) {
     app.innerHTML = renderWelcome() + renderToast();

@@ -58,10 +58,16 @@ You can verify that the local Supabase SQL matches the app contract before sendi
 node tools/check-schema-contract.cjs
 ```
 
+You can verify the rendered desktop/mobile welcome UI in headless Chrome or Edge:
+
+```bash
+node tools/check-browser-smoke.cjs
+```
+
 Before presenting the app as launch-ready, run the full gate:
 
 ```bash
 node tools/check-launch-readiness.cjs
 ```
 
-This command runs JavaScript syntax checks, frontend control checks, local SQL contract checks, and the live Supabase schema check in one pass.
+This command runs JavaScript syntax checks, frontend control checks, rendered browser smoke checks, local SQL contract checks, and the live Supabase schema check in one pass.
