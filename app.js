@@ -619,6 +619,7 @@ function authFailureMessage(error) {
   if (/invalid login credentials/i.test(message)) return "Email or password is incorrect.";
   if (/email not confirmed/i.test(message)) return "Please confirm your email before signing in.";
   if (/user already registered/i.test(message)) return "This email is already registered. Use Sign in.";
+  if (/rate limit|too many|429/i.test(message)) return "Account emails are temporarily busy. Please wait a few minutes and try again, or contact the MyOrchard team.";
   return message;
 }
 
