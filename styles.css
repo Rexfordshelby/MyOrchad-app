@@ -48,6 +48,52 @@ button {
   border: 0;
 }
 
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes soft-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bar-grow {
+  from {
+    transform: scaleY(0.2);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
+}
+
 img {
   display: block;
   max-width: 100%;
@@ -98,6 +144,10 @@ img {
   cursor: pointer;
   font-size: 0.78rem;
   font-weight: 900;
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
 }
 
 .lang-btn.active {
@@ -216,6 +266,7 @@ img {
   box-shadow: var(--shadow);
   font-size: 0.88rem;
   font-weight: 850;
+  animation: toast-in 260ms ease both;
 }
 
 .pill {
@@ -260,6 +311,12 @@ img {
   cursor: pointer;
   font-weight: 850;
   line-height: 1.1;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
 }
 
 .btn:hover,
@@ -327,6 +384,10 @@ img {
   border: 1px solid rgba(23, 63, 34, 0.18);
   border-radius: 8px;
   cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
 }
 
 .welcome {
@@ -429,9 +490,14 @@ img {
   padding: 16px;
   cursor: pointer;
   text-align: left;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
 }
 
 .role-card:hover {
+  transform: translateY(-2px);
   border-color: rgba(47, 125, 59, 0.45);
   box-shadow: var(--shadow);
 }
@@ -521,6 +587,11 @@ img {
   cursor: pointer;
   font-size: 0.84rem;
   font-weight: 850;
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
 }
 
 .auth-tab.active,
@@ -1175,6 +1246,11 @@ img {
   cursor: pointer;
   font-weight: 800;
   text-align: left;
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
 }
 
 .nav-item.active {
@@ -1186,6 +1262,7 @@ img {
 .main {
   min-width: 0;
   padding: 28px;
+  animation: rise-in 280ms ease both;
 }
 
 .page-title {
@@ -1218,6 +1295,7 @@ img {
 .metric-card {
   min-height: 128px;
   padding: 16px;
+  animation: soft-pop 260ms ease both;
 }
 
 .metric-top {
@@ -1288,6 +1366,40 @@ img {
   padding: 18px;
 }
 
+.card,
+.role-card,
+.form-panel,
+.list-card,
+.farm-hero,
+.profile-shell,
+.visual-band,
+.image-panel,
+.queue-item,
+.certificate {
+  animation: rise-in 260ms ease both;
+}
+
+.card,
+.form-panel,
+.list-card,
+.metric-card,
+.queue-item,
+.profile-shell {
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.card:hover,
+.form-panel:hover,
+.list-card:hover,
+.metric-card:hover,
+.queue-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
 .visual-band {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;
@@ -1332,6 +1444,10 @@ img {
   gap: 14px;
   align-items: center;
   padding: 12px;
+}
+
+.orchard-actions {
+  justify-content: flex-end;
 }
 
 .list-card.compact {
@@ -1621,6 +1737,7 @@ img {
   background: #fffdf6;
   border: 1px solid rgba(23, 63, 34, 0.12);
   border-radius: 8px;
+  animation: soft-pop 240ms ease both;
 }
 
 .timeline-card strong {
@@ -1688,6 +1805,11 @@ img {
   border-radius: 8px;
   cursor: pointer;
   font-weight: 850;
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
 }
 
 .chip.active {
@@ -1795,6 +1917,8 @@ img {
   min-height: 24px;
   background: linear-gradient(180deg, var(--leaf), var(--forest));
   border-radius: 8px 8px 2px 2px;
+  transform-origin: bottom;
+  animation: bar-grow 420ms ease both;
 }
 
 .bar-wrap span {
@@ -1858,6 +1982,10 @@ img {
   line-height: 1.35;
 }
 
+.overlay-card {
+  margin-top: 12px;
+}
+
 .queue-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1871,6 +1999,30 @@ img {
 
 .queue-item .page-actions {
   justify-content: flex-start;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .btn:hover,
+  .nav-item:hover,
+  .chip:hover,
+  .icon-btn:hover,
+  .role-card:hover,
+  .card:hover,
+  .form-panel:hover,
+  .list-card:hover,
+  .metric-card:hover,
+  .queue-item:hover {
+    transform: none;
+  }
 }
 
 .queue-item h3 {

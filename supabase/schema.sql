@@ -360,6 +360,24 @@ create policy "users can read own adoptions or admins read all"
     or exists (select 1 from public.app_admins a where lower(a.email) = lower(auth.jwt() ->> 'email'))
   );
 
+drop policy if exists "farmers can read orchard adoptions" on public.adoptions;
+create policy "farmers can read orchard adoptions"
+  on public.adoptions for select
+  using (
+    exists (
+      select 1
+      from public.orchards o
+      where o.slug = adoptions.orchard_slug
+        and o.created_by = auth.uid()
+    )
+    or exists (
+      select 1
+      from public.verifications v
+      where lower(v.farm_name) = lower(coalesce((select o2.name from public.orchards o2 where o2.slug = adoptions.orchard_slug), ''))
+        and v.user_id = auth.uid()
+    )
+  );
+
 drop policy if exists "supporters can insert own adoptions" on public.adoptions;
 create policy "supporters can insert own adoptions"
   on public.adoptions for insert

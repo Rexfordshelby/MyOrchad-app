@@ -225,6 +225,15 @@ const nav = {
   ],
 };
 
+function storedJsonArray(key) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 const state = {
   role: null,
   session: null,
@@ -252,6 +261,7 @@ const state = {
   selectedFarmId: "",
   orchardSearch: "",
   districtFilter: "All",
+  savedFarmIds: storedJsonArray("myorchard_saved_farms"),
   treeCount: 1,
   paymentMethod: "UPI",
   adoptionComplete: false,
@@ -761,6 +771,7 @@ function mapSupabaseVerification(row, index) {
 
 function mapSupabaseUpdate(row) {
   return {
+    orchardSlug: String(firstValue(row, ["orchard_slug"], "")),
     title: String(firstValue(row, ["title"], "Farm progress update")),
     date: new Date(firstValue(row, ["date", "created_at", "updated_at"], new Date().toISOString())).toLocaleDateString("en-IN", {
       day: "2-digit",
@@ -775,6 +786,7 @@ function mapSupabaseUpdate(row) {
 function mapSupabaseAdoption(row) {
   return {
     id: String(firstValue(row, ["id"], "")),
+    userId: String(firstValue(row, ["user_id"], "")),
     supporterName: String(firstValue(row, ["supporter_name"], "")),
     orchardSlug: String(firstValue(row, ["orchard_slug"], "")),
     treeCount: numberValue(row, ["tree_count"], 1),
@@ -801,6 +813,42 @@ function applyProgramSettings(row) {
 
 function selectedFarm() {
   return orchards.find((farm) => farm.id === state.selectedFarmId) || null;
+}
+
+function farmBySlug(slug) {
+  return orchards.find((farm) => farm.id === slug) || null;
+}
+
+function persistSavedFarms() {
+  localStorage.setItem("myorchard_saved_farms", JSON.stringify(state.savedFarmIds));
+}
+
+function isFarmSaved(farmId) {
+  return state.savedFarmIds.includes(farmId);
+}
+
+function savedFarms() {
+  return state.savedFarmIds.map(farmBySlug).filter(Boolean);
+}
+
+function userAdoptions() {
+  if (hasAdminAccess()) return state.adoptions;
+  if (state.role === "farmer") {
+    const ownSlugs = new Set([
+      slugify(state.farmerForm.orchardName),
+      ...orchards.filter((farm) => farm.farmer.toLowerCase() === farmerDisplayName().toLowerCase()).map((farm) => farm.id),
+    ].filter(Boolean));
+    return state.adoptions.filter((adoption) => ownSlugs.has(adoption.orchardSlug));
+  }
+  return state.adoptions;
+}
+
+function adoptedFarmIds() {
+  return [...new Set(userAdoptions().map((adoption) => adoption.orchardSlug).filter(Boolean))];
+}
+
+function adoptedFarms() {
+  return adoptedFarmIds().map(farmBySlug).filter(Boolean);
 }
 
 function orchardTotals() {
@@ -920,6 +968,8 @@ async function saveAdoption() {
   if (error) return { ok: false, message: error.message };
   const record = mapSupabaseAdoption(data);
   state.adoptions = [record, ...state.adoptions.filter((item) => item.id !== record.id)];
+  state.savedFarmIds = [...new Set([farm.id, ...state.savedFarmIds])];
+  persistSavedFarms();
   applyAdoptionToLocalFarm(farm.id, state.treeCount, totalAmount);
   return { ok: true, record };
 }
@@ -1537,6 +1587,9 @@ function renderFarmerStep() {
 function renderFarmerDashboard() {
   const name = escapeHtml(farmerDisplayName());
   const totalTrees = farmerTotalTrees();
+  const farmerAdoptions = userAdoptions();
+  const adoptedTrees = farmerAdoptions.reduce((sum, adoption) => sum + Number(adoption.treeCount || 0), 0);
+  const earned = farmerAdoptions.reduce((sum, adoption) => sum + Number(adoption.totalAmount || 0), 0);
   return `
     ${renderPageTitle(
       `Hello, ${name}`,
@@ -1545,9 +1598,9 @@ function renderFarmerDashboard() {
     )}
     <div class="dashboard-grid">
       ${metric("Total trees", totalTrees, "tree-pine", "Submitted for listing")}
-      ${metric("Adopted trees", "0", "heart-handshake", "Updates after first adoption")}
-      ${metric("Available trees", totalTrees, "clock", "Ready after verification")}
-      ${metric("Account status", state.farmerSubmitted ? "Submitted" : "Draft", "shield-check", "Verification workflow")}
+      ${metric("Adopted trees", adoptedTrees, "heart-handshake", "For your orchard")}
+      ${metric("Available trees", Math.max(totalTrees - adoptedTrees, 0), "clock", "Ready after verification")}
+      ${metric("Earnings tracked", money(earned), "banknote", state.farmerSubmitted ? "From adoption records" : "After approval")}
     </div>
     <div class="content-grid">
       <section>
@@ -1567,7 +1620,22 @@ function renderFarmerDashboard() {
         <div class="section" style="margin-top:18px">
           <div class="section-title"><h2>Recent adoptions</h2><button class="btn secondary" type="button" data-action="export-csv" data-export="farmer-adoptions">${icon("download")} Export</button></div>
           <div class="list">
-            ${renderEmptyState("No adoptions yet", "Adoption records will appear here after your orchard is approved and supporters adopt trees.", "heart-handshake")}
+            ${
+              farmerAdoptions.length
+                ? farmerAdoptions.slice(0, 4).map((adoption) => {
+                    const farm = farmBySlug(adoption.orchardSlug);
+                    return `
+                      <div class="list-card compact">
+                        <div>
+                          <h3>${escapeHtml(adoption.supporterName || "Supporter")}</h3>
+                          <p>${escapeHtml(farm?.name || adoption.orchardSlug || "Orchard")} - ${adoption.treeCount} tree${adoption.treeCount > 1 ? "s" : ""}</p>
+                        </div>
+                        <span class="pill">${money(adoption.totalAmount)}</span>
+                      </div>
+                    `;
+                  }).join("")
+                : renderEmptyState("No adoptions yet", "Adoption records will appear here after your orchard is approved and supporters adopt trees.", "heart-handshake")
+            }
           </div>
         </div>
       </section>
@@ -1614,6 +1682,8 @@ function renderFarmerUpdates() {
 
 function renderFarmerProfile() {
   const location = `${state.farmerForm.village || "Village pending"}, ${state.farmerForm.district}`;
+  const farmerAdoptions = userAdoptions();
+  const adoptedTrees = farmerAdoptions.reduce((sum, adoption) => sum + Number(adoption.treeCount || 0), 0);
   return `
     ${renderPageTitle("Profile", "Your public farmer identity, trust status, and payout readiness.")}
     <section class="profile-shell">
@@ -1637,7 +1707,7 @@ function renderFarmerProfile() {
       </div>
       <div class="profile-stats">
         <div><strong>${escapeHtml(state.farmerForm.totalTrees || "0")}</strong><span>Trees</span></div>
-        <div><strong>0</strong><span>Adopted</span></div>
+        <div><strong>${adoptedTrees}</strong><span>Adopted</span></div>
         <div><strong>${state.farmerSubmitted ? "Review" : "Draft"}</strong><span>Status</span></div>
         <div><strong>${state.farmerUpdates.length}</strong><span>Updates</span></div>
       </div>
@@ -1669,6 +1739,8 @@ function renderFarmerProfile() {
 
 function renderSupporterHome() {
   const totals = orchardTotals();
+  const adoptions = userAdoptions();
+  const adoptedTrees = adoptions.reduce((sum, adoption) => sum + Number(adoption.treeCount || 0), 0);
   return `
     ${renderPageTitle(
       "Welcome",
@@ -1679,7 +1751,7 @@ function renderSupporterHome() {
       ${metric("Published farms", orchards.length, "tree-pine", "Verified orchard profiles")}
       ${metric("Available trees", totals.available, "leaf", "Open for adoption")}
       ${metric("Districts", new Set(orchards.map((farm) => farm.district)).size, "map-pin", "Launch coverage")}
-      ${metric("Certificates", state.adoptionComplete ? "1" : "0", "badge-check", "After adoption")}
+      ${metric("Your trees", adoptedTrees, "badge-check", `${adoptions.length} certificate${adoptions.length === 1 ? "" : "s"}`)}
     </div>
     <div class="content-grid">
       <section>
@@ -1701,10 +1773,12 @@ function renderSupporterHome() {
       </section>
       <aside class="card">
         <div class="section-title"><h2>Impact updates</h2>${icon("bar-chart-3")}</div>
-        ${state.adoptionComplete
-          ? renderTimeline([
-              { title: "Adoption confirmed", date: todayLabel(), body: "Your certificate is ready and the first farm update will follow." },
-            ])
+        ${adoptions.length
+          ? renderTimeline(adoptions.slice(0, 3).map((adoption) => ({
+              title: "Adoption confirmed",
+              date: adoption.createdAt ? new Date(adoption.createdAt).toLocaleDateString("en-IN") : todayLabel(),
+              body: `${adoption.treeCount} tree${adoption.treeCount > 1 ? "s" : ""} adopted from ${farmBySlug(adoption.orchardSlug)?.name || "a verified farm"}.`,
+            })))
           : renderEmptyState("No impact updates yet", "Adopt from a verified farm to start receiving progress notes and certificates.", "bell")}
       </aside>
     </div>
@@ -1744,6 +1818,7 @@ function renderOrchardListing() {
 
 function renderOrchardCard(farm) {
   const isAdmin = state.role === "admin" && hasAdminAccess();
+  const saved = isFarmSaved(farm.id);
   return `
     <article class="list-card">
       <img class="thumb" src="${farm.image}" alt="${farm.name}" />
@@ -1764,9 +1839,14 @@ function renderOrchardCard(farm) {
           ? `<button class="btn secondary" type="button" data-action="admin-open-farm" data-farm="${farm.id}">
               View farm ${icon("chevron-right")}
             </button>`
-          : `<button class="btn secondary" type="button" data-action="open-farm" data-farm="${farm.id}">
-              View farm ${icon("chevron-right")}
-            </button>`
+          : `<div class="page-actions orchard-actions">
+              <button class="btn secondary" type="button" data-action="toggle-save-farm" data-farm="${farm.id}">
+                ${icon(saved ? "bookmark-check" : "bookmark")} ${saved ? "Saved" : "Save"}
+              </button>
+              <button class="btn secondary" type="button" data-action="open-farm" data-farm="${farm.id}">
+                View farm ${icon("chevron-right")}
+              </button>
+            </div>`
       }
     </article>
   `;
@@ -1789,6 +1869,7 @@ function renderFarmDetail() {
       farm.name,
       `${farm.farmer} - ${farm.village}, ${farm.district}, ${farm.state}`,
       `<button class="btn secondary" type="button" data-action="nav" data-role="supporter" data-tab="orchards">${icon("arrow-left")} Back</button>
+       <button class="btn secondary" type="button" data-action="toggle-save-farm" data-farm="${farm.id}">${icon(isFarmSaved(farm.id) ? "bookmark-check" : "bookmark")} ${isFarmSaved(farm.id) ? "Saved" : "Save farm"}</button>
        <button class="btn" type="button" data-action="start-adoption">${icon("heart-handshake")} Adopt trees</button>`,
     )}
     <section class="farm-hero">
@@ -1920,7 +2001,7 @@ function renderCertificateScreen() {
         <span class="brand" style="justify-content:center">${renderBrand()}</span>
         <p class="eyebrow" style="justify-content:center;margin-top:18px">${icon("badge-check")} Certificate of tree adoption</p>
         <h1>This is to certify that</h1>
-        <span class="recipient">${escapeHtml(supporterDisplayName())}</span>
+        <span class="recipient">${escapeHtml(state.adoptionRecord?.supporterName || supporterDisplayName())}</span>
         <p class="muted">has adopted</p>
         <h2>${state.treeCount} Cashew Tree${state.treeCount > 1 ? "s" : ""}</h2>
         <p class="muted">from ${farm.name}, ${farm.district}, Maharashtra</p>
@@ -1946,26 +2027,43 @@ function renderCertificateScreen() {
 
 function renderSupporterUpdates() {
   const farm = selectedFarm();
+  const adoptions = userAdoptions();
+  const farmIds = new Set(adoptedFarmIds());
+  const visibleUpdates = state.farmerUpdates.filter((update) => !update.orchardSlug || farmIds.has(update.orchardSlug));
   return `
     ${renderPageTitle("Updates", "Track tree progress, farmer notes, and adoption milestones.")}
     <div class="content-grid">
       <section class="card">
-        <div class="section-title"><h2>${farm ? farm.name : "Farm updates"}</h2><span class="tag">${state.adoptionComplete ? `${state.treeCount} tree${state.treeCount > 1 ? "s" : ""}` : "No adoption yet"}</span></div>
-        ${state.adoptionComplete && farm
-          ? renderTimeline([
-              { title: "Adoption confirmed", date: todayLabel(), body: `${state.treeCount} tree adoption added to ${farm.name}.` },
-              { title: "First field update", date: "After farmer update", body: "The farmer will share a monthly photo and growth note." },
-            ])
-          : renderEmptyState("No updates yet", "Updates will begin after you adopt from a verified orchard.", "bell")}
+        <div class="section-title"><h2>${farm ? farm.name : "Farm updates"}</h2><span class="tag">${adoptions.length ? `${adoptions.length} adoption${adoptions.length === 1 ? "" : "s"}` : "No adoption yet"}</span></div>
+        ${
+          adoptions.length
+            ? renderTimeline([
+                ...adoptions.slice(0, 3).map((adoption) => ({
+                  title: "Adoption confirmed",
+                  date: adoption.createdAt ? new Date(adoption.createdAt).toLocaleDateString("en-IN") : todayLabel(),
+                  body: `${adoption.treeCount} tree${adoption.treeCount > 1 ? "s" : ""} linked to ${farmBySlug(adoption.orchardSlug)?.name || "a verified orchard"}.`,
+                })),
+                ...visibleUpdates.slice(0, 5),
+              ])
+            : renderEmptyState("No updates yet", "Updates will begin after you adopt from a verified orchard.", "bell")
+        }
       </section>
       <aside class="image-panel">
         <img src="${assets.trust}" alt="Farm transparency update" />
+        <div class="card overlay-card">
+          <span class="tag gold">${icon("bookmark-check")} Saved farms</span>
+          <p class="muted" style="margin-top:8px">${savedFarms().length ? savedFarms().map((item) => item.name).slice(0, 3).join(", ") : "Save farms to follow them before adoption."}</p>
+        </div>
       </aside>
     </div>
   `;
 }
 
 function renderSupporterProfile() {
+  const adoptions = userAdoptions();
+  const adoptedTrees = adoptions.reduce((sum, adoption) => sum + Number(adoption.treeCount || 0), 0);
+  const farms = adoptedFarms();
+  const saved = savedFarms();
   return `
     ${renderPageTitle("Profile", "Your adoption identity, certificates, saved farms, and impact summary.")}
     <section class="profile-shell">
@@ -1988,10 +2086,10 @@ function renderSupporterProfile() {
         </div>
       </div>
       <div class="profile-stats">
-        <div><strong>${state.adoptionComplete ? state.treeCount : 0}</strong><span>Trees</span></div>
-        <div><strong>${state.adoptionComplete ? 1 : 0}</strong><span>Farmers</span></div>
-        <div><strong>${state.adoptionComplete ? 1 : 0}</strong><span>Certificates</span></div>
-        <div><strong>${orchards.length}</strong><span>Farms live</span></div>
+        <div><strong>${adoptedTrees}</strong><span>Trees</span></div>
+        <div><strong>${farms.length}</strong><span>Farmers</span></div>
+        <div><strong>${adoptions.length}</strong><span>Certificates</span></div>
+        <div><strong>${saved.length}</strong><span>Saved</span></div>
       </div>
     </section>
     <div class="profile-grid">
@@ -2008,14 +2106,25 @@ function renderSupporterProfile() {
       <section class="card">
         <div class="section-title"><h2>Adoption history</h2>${icon("badge-check")}</div>
         <div class="list">
-          ${state.adoptionComplete && selectedFarm()
-            ? `<div class="list-card compact"><div><h3>${selectedFarm().name}</h3><p>${state.treeCount} tree${state.treeCount > 1 ? "s" : ""} - certificate ready</p></div><span class="pill">Active</span></div>`
+          ${adoptions.length
+            ? adoptions.map((adoption) => {
+                const farm = farmBySlug(adoption.orchardSlug);
+                return `
+                  <div class="list-card compact">
+                    <div>
+                      <h3>${escapeHtml(farm?.name || "Verified orchard")}</h3>
+                      <p>${adoption.treeCount} tree${adoption.treeCount > 1 ? "s" : ""} - ${escapeHtml(adoption.certificateId || "Certificate ready")}</p>
+                    </div>
+                    <button class="btn secondary" type="button" data-action="view-certificate" data-adoption="${escapeHtml(adoption.id)}">${icon("badge-check")} Certificate</button>
+                  </div>
+                `;
+              }).join("")
             : renderEmptyState("No adoption history", "Adopt from a verified farm to build your certificate timeline.", "badge-check")}
         </div>
       </section>
       <section class="card">
         <div class="section-title"><h2>Saved farms</h2><button class="btn secondary" type="button" data-action="nav" data-role="supporter" data-tab="orchards">${icon("search")} Browse</button></div>
-        ${orchards.length ? renderChecklist(orchards.slice(0, 3).map((farm) => farm.name)) : renderEmptyState("No saved farms yet", "Browse verified farms and save the ones you want to revisit.", "search")}
+        ${saved.length ? renderChecklist(saved.map((farm) => farm.name)) : renderEmptyState("No saved farms yet", "Browse verified farms and save the ones you want to revisit.", "search")}
       </section>
     </div>
   `;
@@ -2114,7 +2223,11 @@ function renderAdminDashboard() {
 
 function renderAdminFarmers() {
   return `
-    ${renderPageTitle("Farmers", "Review registered farmers, KYC state, and payout readiness.")}
+    ${renderPageTitle(
+      "Farmers",
+      "Review registered farmers, KYC state, and payout readiness.",
+      `<button class="btn secondary" type="button" data-action="export-csv" data-export="admin-farmers">${icon("download")} Export CSV</button>`,
+    )}
     <div class="list">
       ${state.verifications.length ? state.verifications.map((item) => `
         <div class="list-card compact">
@@ -2122,7 +2235,10 @@ function renderAdminFarmers() {
             <h3>${item.farmer}</h3>
             <p>${item.farm} - ${item.district} - ${item.trees} trees</p>
           </div>
-          <span class="pill ${item.status === "Pending" ? "clay" : ""}">${item.status}</span>
+          <div class="page-actions">
+            <span class="pill ${item.status === "Pending" ? "clay" : ""}">${item.status}</span>
+            <button class="btn secondary" type="button" data-action="nav" data-role="admin" data-tab="verifications">${icon("shield-check")} Review</button>
+          </div>
         </div>
       `).join("") : renderEmptyState("No farmer records", "New farmer verification records will appear here from Supabase.", "users")}
     </div>
@@ -2131,7 +2247,11 @@ function renderAdminFarmers() {
 
 function renderAdminOrchards() {
   return `
-    ${renderPageTitle("Orchards", "Manage registered farms, tree inventory, adoption availability, and locations.")}
+    ${renderPageTitle(
+      "Orchards",
+      "Manage registered farms, tree inventory, adoption availability, and locations.",
+      `<button class="btn secondary" type="button" data-action="export-csv" data-export="admin-orchards">${icon("download")} Export CSV</button>`,
+    )}
     <div class="list">${orchards.length ? orchards.map(renderOrchardCard).join("") : renderEmptyState("No orchards published", "Approved orchards will appear here after records are created in Supabase.", "tree-pine")}</div>
   `;
 }
@@ -2213,7 +2333,11 @@ function renderAdminPayments() {
 function renderAdminReports() {
   const totals = orchardTotals();
   return `
-    ${renderPageTitle("Reports", "View adoption, farmer support, and sustainability indicators.")}
+    ${renderPageTitle(
+      "Reports",
+      "View adoption, farmer support, and sustainability indicators.",
+      `<button class="btn secondary" type="button" data-action="export-csv" data-export="admin-report">${icon("download")} Export report</button>`,
+    )}
     <div class="grid-2">
       <div class="card">
         <div class="section-title"><h2>Impact summary</h2><span class="tag gold">Live inventory</span></div>
@@ -2272,6 +2396,7 @@ function renderSupabaseStatus() {
 
 function renderQueueItem(item) {
   const isPending = item.status === "Pending";
+  const isVerified = item.status === "Verified";
   return `
     <div class="queue-item">
       <div>
@@ -2284,7 +2409,7 @@ function renderQueueItem(item) {
           isPending
             ? `<button class="btn" type="button" data-action="admin-verify" data-id="${item.id}">${icon("shield-check")} Approve</button>
                <button class="btn secondary" type="button" data-action="admin-review" data-id="${item.id}">${icon("message-square-warning")} Review</button>`
-            : `<span class="pill">${icon("check")} Live</span>`
+            : `<span class="pill ${isVerified ? "" : "clay"}">${icon(isVerified ? "check" : "message-square-warning")} ${isVerified ? "Live" : "Needs review"}</span>`
         }
       </div>
     </div>
@@ -2400,16 +2525,19 @@ function downloadTextFile(filename, content, mimeType = "text/plain") {
 
 function exportCsv(type) {
   if (type === "farmer-adoptions") {
+    const farmerAdoptions = userAdoptions();
     const rows = [
-      ["Supporter", "Trees", "Date", "Status"],
-      ...state.adoptions.map((adoption) => [
+      ["Supporter", "Orchard", "Trees", "Amount", "Date", "Status"],
+      ...farmerAdoptions.map((adoption) => [
         adoption.supporterName,
+        farmBySlug(adoption.orchardSlug)?.name || adoption.orchardSlug,
         String(adoption.treeCount),
+        String(adoption.totalAmount),
         adoption.createdAt ? new Date(adoption.createdAt).toLocaleDateString("en-IN") : "",
         adoption.status,
       ]),
     ];
-    if (rows.length === 1) rows.push(["", "", "", "No adoption records yet"]);
+    if (rows.length === 1) rows.push(["", "", "", "", "", "No adoption records yet"]);
     return downloadTextFile("myorchard-farmer-adoptions.csv", toCsv(rows), "text/csv");
   }
 
@@ -2428,16 +2556,59 @@ function exportCsv(type) {
     return downloadTextFile("myorchard-admin-payments.csv", toCsv(rows), "text/csv");
   }
 
+  if (type === "admin-farmers") {
+    const rows = [
+      ["Farmer", "Farm", "District", "Village", "Trees", "Status", "Mobile"],
+      ...state.verifications.map((item) => [item.farmer, item.farm, item.district, item.village, String(item.trees), item.status, item.mobile]),
+    ];
+    if (rows.length === 1) rows.push(["", "", "", "", "", "No farmer records yet", ""]);
+    return downloadTextFile("myorchard-admin-farmers.csv", toCsv(rows), "text/csv");
+  }
+
+  if (type === "admin-orchards") {
+    const rows = [
+      ["Orchard", "Farmer", "District", "Village", "Total trees", "Adopted", "Available", "Income"],
+      ...orchards.map((farm) => [
+        farm.name,
+        farm.farmer,
+        farm.district,
+        farm.village,
+        String(farm.totalTrees),
+        String(farm.adopted),
+        String(farm.available),
+        String(farm.income),
+      ]),
+    ];
+    if (rows.length === 1) rows.push(["", "", "", "", "", "", "", "No orchard records yet"]);
+    return downloadTextFile("myorchard-admin-orchards.csv", toCsv(rows), "text/csv");
+  }
+
+  if (type === "admin-report") {
+    const totals = orchardTotals();
+    const rows = [
+      ["Metric", "Value"],
+      ["Published orchards", String(orchards.length)],
+      ["Total trees", String(totals.trees)],
+      ["Adopted trees", String(totals.adopted)],
+      ["Available trees", String(totals.available)],
+      ["Revenue tracked", String(totals.income)],
+      ["Verification records", String(state.verifications.length)],
+      ["Payment records", String(state.adoptions.length)],
+    ];
+    return downloadTextFile("myorchard-admin-report.csv", toCsv(rows), "text/csv");
+  }
+
   return "";
 }
 
 function downloadCertificate() {
   const farm = selectedFarm();
   if (!farm) return "";
+  const recipient = state.adoptionRecord?.supporterName || supporterDisplayName();
   const content = [
     "MYORCHARD CERTIFICATE OF TREE ADOPTION",
     "",
-    `This is to certify that ${supporterDisplayName()} has adopted`,
+    `This is to certify that ${recipient} has adopted`,
     `${state.treeCount} Cashew Tree${state.treeCount > 1 ? "s" : ""}`,
     `from ${farm.name}, ${farm.district}, Maharashtra.`,
     "",
@@ -2641,6 +2812,37 @@ document.addEventListener("click", async (event) => {
   if (action === "open-farm") {
     state.selectedFarmId = target.dataset.farm;
     state.supporterTab = "farm";
+    render();
+    return;
+  }
+
+  if (action === "toggle-save-farm") {
+    const farmId = target.dataset.farm;
+    if (isFarmSaved(farmId)) {
+      state.savedFarmIds = state.savedFarmIds.filter((id) => id !== farmId);
+      state.toast = "Farm removed from saved list";
+    } else {
+      state.savedFarmIds = [...new Set([farmId, ...state.savedFarmIds])];
+      state.toast = "Farm saved to your profile";
+    }
+    persistSavedFarms();
+    render();
+    return;
+  }
+
+  if (action === "view-certificate") {
+    const adoption = state.adoptions.find((item) => item.id === target.dataset.adoption);
+    const farm = adoption ? farmBySlug(adoption.orchardSlug) : null;
+    if (!adoption || !farm) {
+      state.toast = "Certificate record is not available yet";
+      render();
+      return;
+    }
+    state.adoptionRecord = adoption;
+    state.selectedFarmId = farm.id;
+    state.treeCount = adoption.treeCount;
+    state.adoptionComplete = true;
+    state.supporterTab = "adoption";
     render();
     return;
   }

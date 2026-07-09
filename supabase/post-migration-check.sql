@@ -91,6 +91,7 @@ required_policies(table_name, policy_name) as (
     ('farmer_updates', 'public can read farmer updates'),
     ('farmer_updates', 'farmers can insert own updates'),
     ('adoptions', 'users can read own adoptions or admins read all'),
+    ('adoptions', 'farmers can read orchard adoptions'),
     ('adoptions', 'supporters can insert own adoptions'),
     ('program_settings', 'public can read program settings'),
     ('program_settings', 'admins can manage program settings')

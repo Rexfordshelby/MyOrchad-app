@@ -104,6 +104,7 @@ const policyNames = [
   "public can read farmer updates",
   "farmers can insert own updates",
   "users can read own adoptions or admins read all",
+  "farmers can read orchard adoptions",
   "supporters can insert own adoptions",
   "public can read program settings",
   "admins can manage program settings",
