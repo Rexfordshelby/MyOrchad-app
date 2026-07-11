@@ -1568,6 +1568,10 @@ img {
   gap: 14px;
 }
 
+.auth-extra-grid {
+  margin-top: 12px;
+}
+
 .form-row {
   display: grid;
   gap: 7px;
@@ -1581,11 +1585,52 @@ img {
   padding: 20px;
 }
 
+.form-note {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px;
+  color: var(--forest);
+  background: #fffdf6;
+  border: 1px solid rgba(23, 63, 34, 0.12);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.form-note.warning {
+  color: #65341f;
+  background: #fff6ec;
+  border-color: rgba(158, 80, 38, 0.22);
+}
+
+.form-note.success {
+  background: #eef4e5;
+}
+
+.form-note ul {
+  margin: 5px 0 0;
+  padding-left: 18px;
+}
+
+.form-note .icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.review-grid {
+  margin-top: 14px;
+}
+
 .stepper {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 18px;
+}
+
+.checkout-stepper {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .step {
@@ -1645,6 +1690,11 @@ img {
   display: grid;
   grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr);
   gap: 18px;
+}
+
+.soft-card {
+  background: #fff9ed;
+  box-shadow: none;
 }
 
 .farm-hero {
@@ -1792,6 +1842,23 @@ img {
   gap: 10px;
 }
 
+.consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.consent-row input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--leaf);
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -1862,6 +1929,51 @@ img {
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr);
   min-height: calc(100vh - 72px);
+}
+
+.review-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  gap: 18px;
+}
+
+.review-primary {
+  min-height: 100%;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.detail-grid div {
+  padding: 12px;
+  background: #fffdf6;
+  border: 1px solid rgba(23, 63, 34, 0.1);
+  border-radius: 8px;
+}
+
+.detail-grid span,
+.compact-info span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.detail-grid strong,
+.compact-info strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--forest);
+  overflow-wrap: anywhere;
+}
+
+.review-actions {
+  justify-content: flex-start;
+  margin-top: 18px;
 }
 
 .admin-rail {
@@ -2081,6 +2193,7 @@ img {
   .content-grid,
   .farm-hero,
   .adoption-layout,
+  .review-layout,
   .visual-band,
   .profile-grid {
     grid-template-columns: 1fr;
@@ -2263,6 +2376,7 @@ img {
 
   .toolbar,
   .form-grid,
+  .detail-grid,
   .grid-2,
   .grid-3,
   .method-grid,

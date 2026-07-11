@@ -243,6 +243,11 @@ const state = {
   authEmail: "",
   authPassword: "",
   authName: "",
+  authMobile: "",
+  authLocation: "",
+  authDistrict: "Sindhudurg",
+  authVillage: "",
+  authOrchardName: "",
   authMessage: "",
   authBusy: false,
   profileSyncWarning: "",
@@ -259,10 +264,12 @@ const state = {
   farmerSubmitted: false,
   toast: "",
   selectedFarmId: "",
+  selectedVerificationId: "",
   orchardSearch: "",
   districtFilter: "All",
   savedFarmIds: storedJsonArray("myorchard_saved_farms"),
   treeCount: 1,
+  adoptionStep: 0,
   paymentMethod: "UPI",
   adoptionComplete: false,
   adoptionRecord: null,
@@ -280,6 +287,11 @@ const state = {
   paymentForm: {
     supporterName: "",
     mobile: "",
+    email: "",
+    location: "",
+    paymentReference: "",
+    giftName: "",
+    agreeTerms: false,
   },
   supporterProfile: {
     name: "Supporter",
@@ -313,6 +325,11 @@ const state = {
     ownership: "Owned",
     bank: "",
     account: "",
+    ifsc: "",
+    address: "",
+    pincode: "",
+    coordinates: "",
+    farmerPhotos: [],
   },
   farmerUpdates: [],
   verifications: [],
@@ -344,6 +361,27 @@ function normalizeEmail(value) {
 
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
+}
+
+function digitsOnly(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function isValidMobile(value) {
+  return /^[6-9]\d{9}$/.test(digitsOnly(value));
+}
+
+function isValidAadhaar(value) {
+  return /^\d{12}$/.test(digitsOnly(value));
+}
+
+function isValidIfsc(value) {
+  return /^[A-Z]{4}0[A-Z0-9]{6}$/.test(String(value || "").trim().toUpperCase());
+}
+
+function positiveNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0;
 }
 
 function isAdminEmail(value) {
@@ -647,7 +685,9 @@ async function readAdminAccess(email) {
 async function upsertUserProfile({ session, role, fullName, language = state.lang }) {
   if (!supabaseBridge.client || !session?.user) return { profile: null, error: null };
   const email = normalizeEmail(session.user.email);
-  const fallbackName = fullName || session.user.user_metadata?.full_name || roleLabel(role);
+  const metadata = session.user.user_metadata || {};
+  const fallbackName = fullName || metadata.full_name || roleLabel(role);
+  const metadataLocation = metadata.location || [metadata.village, metadata.district].filter(Boolean).join(", ");
   const payload = {
     user_id: session.user.id,
     email,
@@ -656,6 +696,9 @@ async function upsertUserProfile({ session, role, fullName, language = state.lan
     preferred_language: language,
     updated_at: new Date().toISOString(),
   };
+  if (metadata.mobile || state.authMobile) payload.mobile = metadata.mobile || digitsOnly(state.authMobile);
+  if (metadataLocation || state.authLocation) payload.location = metadataLocation || state.authLocation.trim();
+  if (metadata.bio) payload.bio = metadata.bio;
   const { data, error } = await supabaseBridge.client
     .from("user_profiles")
     .upsert(payload, { onConflict: "user_id" })
@@ -687,9 +730,10 @@ async function applyAuthSession(session, options = {}) {
   if (!session?.user) return;
   const email = normalizeEmail(session.user.email);
   const admin = await readAdminAccess(email);
-  const requestedRole = session.user.user_metadata?.role;
+  const metadata = session.user.user_metadata || {};
+  const requestedRole = metadata.role;
   const role = admin ? "admin" : ["farmer", "supporter"].includes(requestedRole) ? requestedRole : state.authRole;
-  const fullName = session.user.user_metadata?.full_name || state.authName.trim() || roleLabel(role);
+  const fullName = metadata.full_name || state.authName.trim() || roleLabel(role);
   const { profile, error: profileError } = await upsertUserProfile({ session, role, fullName });
 
   state.session = {
@@ -703,6 +747,24 @@ async function applyAuthSession(session, options = {}) {
   state.authMessage = "";
   state.profileSyncWarning = profileError ? "Account connected, but profile sync needs backend attention." : "";
   applyProfileToState(profile, role);
+
+  if (role === "farmer") {
+    state.farmerForm.fullName = state.farmerForm.fullName || fullName || "";
+    state.farmerForm.mobile = state.farmerForm.mobile || metadata.mobile || digitsOnly(state.authMobile);
+    state.farmerForm.district = metadata.district || state.farmerForm.district || state.authDistrict;
+    state.farmerForm.village = state.farmerForm.village || metadata.village || state.authVillage.trim();
+    state.farmerForm.orchardName = state.farmerForm.orchardName || metadata.orchard_name || state.authOrchardName.trim();
+  }
+
+  if (role === "supporter") {
+    state.supporterProfile.name = state.supporterProfile.name === "Supporter" ? fullName : state.supporterProfile.name;
+    state.supporterProfile.mobile = metadata.mobile || state.supporterProfile.mobile;
+    state.supporterProfile.location = metadata.location || state.supporterProfile.location;
+    state.paymentForm.supporterName = state.paymentForm.supporterName || fullName;
+    state.paymentForm.mobile = state.paymentForm.mobile || metadata.mobile || digitsOnly(state.authMobile);
+    state.paymentForm.email = state.paymentForm.email || email;
+    state.paymentForm.location = state.paymentForm.location || metadata.location || state.authLocation.trim();
+  }
 
   if (role === "admin") state.adminTab = "dashboard";
   if (role === "farmer") state.farmerTab = state.farmerSubmitted ? "dashboard" : "onboarding";
@@ -819,6 +881,10 @@ function farmBySlug(slug) {
   return orchards.find((farm) => farm.id === slug) || null;
 }
 
+function selectedVerification() {
+  return state.verifications.find((item) => item.id === state.selectedVerificationId) || null;
+}
+
 function persistSavedFarms() {
   localStorage.setItem("myorchard_saved_farms", JSON.stringify(state.savedFarmIds));
 }
@@ -868,6 +934,41 @@ function farmerTotalTrees() {
   return Number(state.farmerForm.totalTrees) || 0;
 }
 
+function farmerStepErrors(step = state.farmerStep) {
+  const errors = [];
+  if (step === 0) {
+    if (!state.farmerForm.fullName.trim()) errors.push("Enter farmer full name.");
+    if (!isValidMobile(state.farmerForm.mobile)) errors.push("Enter a valid 10 digit mobile number.");
+    if (!state.farmerForm.district) errors.push("Choose district.");
+    if (!state.farmerForm.village.trim()) errors.push("Enter village name.");
+  }
+
+  if (step === 1) {
+    if (!isValidAadhaar(state.farmerForm.aadhaar)) errors.push("Enter a valid 12 digit Aadhaar number.");
+    if (!state.farmerForm.bank.trim()) errors.push("Enter bank name.");
+    if (digitsOnly(state.farmerForm.account).length < 8) errors.push("Enter a valid bank account number.");
+    if (!isValidIfsc(state.farmerForm.ifsc)) errors.push("Enter a valid IFSC code.");
+  }
+
+  if (step === 2) {
+    if (!state.farmerForm.orchardName.trim()) errors.push("Enter orchard name.");
+    if (!positiveNumber(state.farmerForm.acres)) errors.push("Enter land acres.");
+    if (!positiveNumber(state.farmerForm.totalTrees)) errors.push("Enter total tree count.");
+    if (!state.farmerForm.address.trim()) errors.push("Enter orchard address.");
+    if (state.farmerForm.pincode && digitsOnly(state.farmerForm.pincode).length !== 6) errors.push("Enter a valid 6 digit pincode.");
+  }
+
+  if (step === 3) {
+    [0, 1, 2].forEach((index) => errors.push(...farmerStepErrors(index)));
+  }
+
+  return [...new Set(errors)];
+}
+
+function farmerStepComplete(step) {
+  return farmerStepErrors(step).length === 0;
+}
+
 function farmerDisplayName() {
   return state.farmerForm.fullName.trim() || "farmer";
 }
@@ -880,14 +981,42 @@ function supporterDisplayName() {
   return state.supporterProfile.name.trim() && state.supporterProfile.name !== "Supporter" ? state.supporterProfile.name : "MyOrchard supporter";
 }
 
+function adoptionStepErrors(step = state.adoptionStep, farm = selectedFarm()) {
+  const errors = [];
+  if (!farm) errors.push("Choose a verified farm before checkout.");
+
+  if (step === 0 && farm) {
+    if (farm.available <= 0) errors.push("This farm has no trees available right now.");
+    if (state.treeCount < 1) errors.push("Select at least one tree.");
+    if (state.treeCount > farm.available) errors.push(`Only ${farm.available} trees are available from this farm.`);
+  }
+
+  if (step === 1) {
+    if (!state.paymentForm.supporterName.trim()) errors.push("Enter supporter name.");
+    if (!isValidMobile(state.paymentForm.mobile)) errors.push("Enter a valid 10 digit mobile number.");
+    if (state.paymentForm.email && !isValidEmail(state.paymentForm.email)) errors.push("Enter a valid email address.");
+    if (!state.paymentForm.location.trim()) errors.push("Enter supporter city or district.");
+  }
+
+  if (step === 2) {
+    if (!state.paymentMethod) errors.push("Choose a payment method.");
+    if (!state.paymentForm.paymentReference.trim()) errors.push("Enter payment reference or transaction ID.");
+    if (!state.paymentForm.agreeTerms) errors.push("Confirm the adoption and update consent.");
+  }
+
+  return [...new Set(errors)];
+}
+
+function adoptionReady(farm = selectedFarm()) {
+  return [0, 1, 2].every((step) => adoptionStepErrors(step, farm).length === 0);
+}
+
 function renderEmptyState(title, body, iconName = "leaf") {
   return `<div class="empty-state">${icon(iconName)}<h2>${title}</h2><p class="muted">${body}</p></div>`;
 }
 
 function farmerSubmissionReady() {
-  return ["fullName", "mobile", "village", "orchardName", "acres", "totalTrees", "bank", "account"].every((field) =>
-    String(state.farmerForm[field] || "").trim(),
-  );
+  return farmerStepErrors(3).length === 0;
 }
 
 async function upsertFarmerVerification() {
@@ -902,9 +1031,9 @@ async function upsertFarmerVerification() {
     village: state.farmerForm.village.trim(),
     acres: Number(state.farmerForm.acres) || 0,
     crop: state.farmerForm.crop,
-    mobile: state.farmerForm.mobile.trim(),
+    mobile: digitsOnly(state.farmerForm.mobile),
     bank_name: state.farmerForm.bank.trim(),
-    account_number: state.farmerForm.account.trim(),
+    account_number: digitsOnly(state.farmerForm.account),
     total_trees: farmerTotalTrees(),
     status: "Pending",
     updated_at: new Date().toISOString(),
@@ -950,17 +1079,24 @@ async function saveAdoption() {
   const farm = selectedFarm();
   if (!farm) return { ok: false, message: "Choose a verified farm before payment." };
   if (!supabaseBridge.client || !currentUserId()) return { ok: false, message: "Sign in with a supporter account before payment." };
+  if (state.role !== "supporter") return { ok: false, message: "Use a supporter account to adopt trees." };
+  const errors = [0, 1, 2].flatMap((step) => adoptionStepErrors(step, farm));
+  if (errors.length) return { ok: false, message: errors[0] };
   const supporterName = state.paymentForm.supporterName.trim() || supporterDisplayName();
+  const certificateName = state.paymentForm.giftName.trim() || supporterName;
   const totalAmount = programConfig.adoptionAmount * state.treeCount;
   const certificateId = makeCertificateId(farm.id);
+  const paymentMethod = state.paymentForm.paymentReference.trim()
+    ? `${state.paymentMethod} (${state.paymentForm.paymentReference.trim()})`
+    : state.paymentMethod;
   const payload = {
     user_id: currentUserId(),
-    supporter_name: supporterName,
-    supporter_mobile: state.paymentForm.mobile.trim() || null,
+    supporter_name: certificateName,
+    supporter_mobile: digitsOnly(state.paymentForm.mobile) || null,
     orchard_slug: farm.id,
     tree_count: state.treeCount,
     total_amount: totalAmount,
-    payment_method: state.paymentMethod,
+    payment_method: paymentMethod,
     payment_status: "Paid",
     certificate_id: certificateId,
   };
@@ -971,6 +1107,13 @@ async function saveAdoption() {
   state.savedFarmIds = [...new Set([farm.id, ...state.savedFarmIds])];
   persistSavedFarms();
   applyAdoptionToLocalFarm(farm.id, state.treeCount, totalAmount);
+  state.supporterProfile = {
+    ...state.supporterProfile,
+    name: supporterName,
+    mobile: digitsOnly(state.paymentForm.mobile),
+    email: state.paymentForm.email.trim() || state.supporterProfile.email,
+    location: state.paymentForm.location.trim() || state.supporterProfile.location,
+  };
   return { ok: true, record };
 }
 
@@ -1032,9 +1175,12 @@ function beginSupporterProfileEdit() {
 }
 
 async function saveSupporterProfile() {
+  if (state.supporterProfileDraft.mobile.trim() && !isValidMobile(state.supporterProfileDraft.mobile)) {
+    return { ok: false, message: "Enter a valid 10 digit mobile number." };
+  }
   const profile = {
     name: state.supporterProfileDraft.name.trim() || state.supporterProfile.name,
-    mobile: state.supporterProfileDraft.mobile.trim() || "Add mobile number",
+    mobile: digitsOnly(state.supporterProfileDraft.mobile) || "Add mobile number",
     location: state.supporterProfileDraft.location.trim() || "Add location",
     bio: state.supporterProfileDraft.bio.trim() || state.supporterProfile.bio,
   };
@@ -1061,6 +1207,9 @@ async function saveSupporterProfile() {
     location: profile.location,
     bio: profile.bio,
   };
+  state.paymentForm.supporterName = state.paymentForm.supporterName || profile.name;
+  if (!state.paymentForm.mobile && !profile.mobile.startsWith("Add ")) state.paymentForm.mobile = profile.mobile;
+  if (!state.paymentForm.location && !profile.location.startsWith("Add ")) state.paymentForm.location = profile.location;
   state.profileEditMode = false;
   return { ok: true };
 }
@@ -1256,7 +1405,40 @@ function renderAuthPanel() {
             ? `<label class="form-row">
                 <span class="label">Full name</span>
                 <input class="input" type="text" autocomplete="name" value="${escapeHtml(state.authName)}" placeholder="Your full name" data-field="authName" data-preserve="auth-name" />
-              </label>`
+              </label>
+              <div class="grid-2 auth-extra-grid">
+                <label class="form-row">
+                  <span class="label">Mobile number</span>
+                  <input class="input" type="tel" inputmode="numeric" autocomplete="tel" value="${escapeHtml(state.authMobile)}" placeholder="10 digit mobile" data-field="authMobile" data-preserve="auth-mobile" />
+                </label>
+                ${
+                  state.authRole === "farmer"
+                    ? `<label class="form-row">
+                        <span class="label">District</span>
+                        <select class="select" data-field="authDistrict">
+                          ${districts.map((district) => `<option value="${district}" ${state.authDistrict === district ? "selected" : ""}>${district}</option>`).join("")}
+                        </select>
+                      </label>`
+                    : `<label class="form-row">
+                        <span class="label">City or district</span>
+                        <input class="input" type="text" autocomplete="address-level2" value="${escapeHtml(state.authLocation)}" placeholder="Where are you based?" data-field="authLocation" data-preserve="auth-location" />
+                      </label>`
+                }
+              </div>
+              ${
+                state.authRole === "farmer"
+                  ? `<div class="grid-2 auth-extra-grid">
+                      <label class="form-row">
+                        <span class="label">Village</span>
+                        <input class="input" type="text" value="${escapeHtml(state.authVillage)}" placeholder="Village name" data-field="authVillage" data-preserve="auth-village" />
+                      </label>
+                      <label class="form-row">
+                        <span class="label">Orchard name</span>
+                        <input class="input" type="text" value="${escapeHtml(state.authOrchardName)}" placeholder="Farm or orchard name" data-field="authOrchardName" data-preserve="auth-orchard" />
+                      </label>
+                    </div>`
+                  : ""
+              }`
             : ""
         }
         <label class="form-row">
@@ -1453,7 +1635,7 @@ function renderFarmerOnboarding() {
           ${steps
             .map(
               (step, index) => `
-                <div class="step ${index === state.farmerStep ? "active" : ""} ${index < state.farmerStep ? "done" : ""}">
+                <div class="step ${index === state.farmerStep ? "active" : ""} ${farmerStepComplete(index) ? "done" : ""}">
                   <span class="step-number">${index + 1}</span>
                   <span>${step}</span>
                 </div>
@@ -1526,16 +1708,33 @@ function selectRow(label, field, options, full = false) {
   `;
 }
 
+function renderFormIssues(errors) {
+  if (!errors.length) {
+    return `<div class="form-note success">${icon("check-circle-2")} This step is complete.</div>`;
+  }
+  return `
+    <div class="form-note warning">
+      ${icon("circle-alert")}
+      <div>
+        <strong>Required before continuing</strong>
+        <ul>${errors.map((error) => `<li>${escapeHtml(error)}</li>`).join("")}</ul>
+      </div>
+    </div>
+  `;
+}
+
 function renderFarmerStep() {
+  const errors = farmerStepErrors(state.farmerStep);
   if (state.farmerStep === 0) {
     return `
       <div class="section-title"><h2>Basic information</h2><span class="tag">${icon("user")} Farmer</span></div>
       <div class="form-grid">
         ${inputRow("Full name", "fullName")}
-        ${inputRow("Mobile number", "mobile")}
+        ${inputRow("Mobile number", "mobile", "tel")}
         ${selectRow("District", "district", districts)}
         ${inputRow("Village", "village")}
       </div>
+      ${renderFormIssues(errors)}
     `;
   }
 
@@ -1543,11 +1742,13 @@ function renderFarmerStep() {
     return `
       <div class="section-title"><h2>KYC and payment details</h2><span class="tag gold">${icon("shield-check")} Secure</span></div>
       <div class="form-grid">
-        ${inputRow("Aadhaar number", "aadhaar")}
+        ${inputRow("Aadhaar number", "aadhaar", "text")}
         ${inputRow("Bank name", "bank")}
         ${inputRow("Account number", "account")}
+        ${inputRow("IFSC code", "ifsc")}
         ${selectRow("Ownership type", "ownership", ["Owned", "Leased", "Family owned"])}
       </div>
+      ${renderFormIssues(errors)}
     `;
   }
 
@@ -1559,14 +1760,24 @@ function renderFarmerStep() {
         ${inputRow("Total land acres", "acres", "number")}
         ${inputRow("Total trees", "totalTrees", "number")}
         ${selectRow("Crop type", "crop", ["Cashew", "Mango", "Coconut", "Mixed orchard"])}
+        ${inputRow("Orchard address", "address", "text", true)}
+        ${inputRow("Pincode", "pincode")}
+        ${inputRow("Map coordinates", "coordinates")}
         <label class="form-row full">
           <span class="label">Upload orchard photos</span>
-          <input class="input" type="file" multiple />
+          <input class="input" type="file" multiple data-field="farmerPhotos" />
         </label>
       </div>
+      ${
+        state.farmerForm.farmerPhotos.length
+          ? `<div class="mini-row">${state.farmerForm.farmerPhotos.map((name) => `<span class="tag">${icon("image")} ${escapeHtml(name)}</span>`).join("")}</div>`
+          : ""
+      }
+      ${renderFormIssues(errors)}
     `;
   }
 
+  const reviewErrors = farmerStepErrors(3);
   return `
     <div class="section-title"><h2>Review submission</h2><span class="tag clay">${icon("file-text")} Ready</span></div>
     <div class="grid-2">
@@ -1581,6 +1792,15 @@ function renderFarmerStep() {
         <p class="muted">${escapeHtml(state.farmerForm.totalTrees || "0")} ${escapeHtml(state.farmerForm.crop)} trees across ${escapeHtml(state.farmerForm.acres || "0")} acres</p>
       </div>
     </div>
+    <div class="review-grid">
+      ${renderChecklist([
+        `Mobile: ${state.farmerForm.mobile || "Pending"}`,
+        `KYC: ${state.farmerForm.aadhaar ? "Aadhaar captured" : "Pending"}`,
+        `Bank: ${state.farmerForm.bank || "Pending"} ${state.farmerForm.ifsc ? `- ${state.farmerForm.ifsc.toUpperCase()}` : ""}`,
+        `Location: ${state.farmerForm.address || "Pending"}`,
+      ])}
+    </div>
+    ${renderFormIssues(reviewErrors)}
   `;
 }
 
@@ -1900,6 +2120,95 @@ function renderFarmDetail() {
   `;
 }
 
+function renderAdoptionStep(farm, total) {
+  const errors = adoptionStepErrors(state.adoptionStep, farm);
+  if (state.adoptionStep === 0) {
+    return `
+      <div class="section-title"><h2>Choose trees</h2><span class="tag">${icon("tree-pine")} ${farm.available} available</span></div>
+      <div class="section">
+        <div class="section-title">
+          <h3>Number of trees</h3>
+          <div class="counter">
+            <button class="icon-btn" type="button" data-action="tree-count" data-delta="-1" aria-label="Decrease tree count">${icon("minus")}</button>
+            <span class="counter-value">${state.treeCount}</span>
+            <button class="icon-btn" type="button" data-action="tree-count" data-delta="1" aria-label="Increase tree count">${icon("plus")}</button>
+          </div>
+        </div>
+        <div class="payment-breakdown">
+          <div class="breakdown-row"><span>Adoption amount per tree</span><strong>${money(programConfig.adoptionAmount)}</strong></div>
+          <div class="breakdown-row"><span>Selected trees</span><strong>${state.treeCount}</strong></div>
+          <div class="breakdown-row"><span>Certificate and updates</span><strong>Included</strong></div>
+          <div class="breakdown-row"><span>Total</span><strong>${money(total)}</strong></div>
+        </div>
+      </div>
+      <div class="card soft-card">
+        <div class="section-title"><h3>What supporter receives</h3>${icon("badge-check")}</div>
+        ${renderChecklist(["Digital adoption certificate", "Farm progress updates", "Saved receipt in profile", "Visible orchard and farmer details"])}
+      </div>
+      ${renderFormIssues(errors)}
+    `;
+  }
+
+  if (state.adoptionStep === 1) {
+    return `
+      <div class="section-title"><h2>Supporter details</h2><span class="tag gold">${icon("user-check")} Certificate name</span></div>
+      <div class="form-grid">
+        <label class="form-row">
+          <span class="label">Supporter name</span>
+          <input class="input" placeholder="Enter supporter name" value="${escapeHtml(state.paymentForm.supporterName)}" data-field="paymentSupporterName" data-preserve="payment-name" />
+        </label>
+        <label class="form-row">
+          <span class="label">Mobile number</span>
+          <input class="input" type="tel" inputmode="numeric" placeholder="10 digit mobile" value="${escapeHtml(state.paymentForm.mobile)}" data-field="paymentMobile" data-preserve="payment-mobile" />
+        </label>
+        <label class="form-row">
+          <span class="label">Email address</span>
+          <input class="input" type="email" placeholder="receipt@example.com" value="${escapeHtml(state.paymentForm.email)}" data-field="paymentEmail" data-preserve="payment-email" />
+        </label>
+        <label class="form-row">
+          <span class="label">City or district</span>
+          <input class="input" placeholder="Supporter location" value="${escapeHtml(state.paymentForm.location)}" data-field="paymentLocation" data-preserve="payment-location" />
+        </label>
+        <label class="form-row full">
+          <span class="label">Certificate dedication name</span>
+          <input class="input" placeholder="Optional, if adopting for someone else" value="${escapeHtml(state.paymentForm.giftName)}" data-field="giftName" data-preserve="gift-name" />
+        </label>
+      </div>
+      ${renderFormIssues(errors)}
+    `;
+  }
+
+  return `
+    <div class="section-title"><h2>Payment confirmation</h2><span class="pill">${icon("lock")} Secure record</span></div>
+    <div class="method-grid">
+      ${["UPI", "Card", "Net banking"].map(
+        (method) => `
+          <button class="chip ${state.paymentMethod === method ? "active" : ""}" type="button" data-action="payment-method" data-method="${method}">
+            ${icon(method === "UPI" ? "smartphone" : method === "Card" ? "credit-card" : "landmark")} ${method}
+          </button>
+        `,
+      ).join("")}
+    </div>
+    <label class="form-row full" style="margin-top:18px">
+      <span class="label">Payment reference or transaction ID</span>
+      <input class="input" placeholder="Enter UPI, card, or bank reference" value="${escapeHtml(state.paymentForm.paymentReference)}" data-field="paymentReference" data-preserve="payment-reference" />
+    </label>
+    <div class="card soft-card" style="margin-top:18px">
+      <div class="section-title"><h3>Final summary</h3><span class="tag gold">${state.treeCount} tree${state.treeCount > 1 ? "s" : ""}</span></div>
+      <div class="info-list compact-info">
+        <div><span>Farm</span><strong>${escapeHtml(farm.name)}</strong></div>
+        <div><span>Recipient</span><strong>${escapeHtml(state.paymentForm.giftName.trim() || state.paymentForm.supporterName || supporterDisplayName())}</strong></div>
+        <div><span>Amount</span><strong>${money(total)}</strong></div>
+      </div>
+      <label class="consent-row">
+        <input type="checkbox" ${state.paymentForm.agreeTerms ? "checked" : ""} data-field="agreeTerms" />
+        <span>I confirm this adoption record, payment reference, and monthly update consent.</span>
+      </label>
+    </div>
+    ${renderFormIssues(errors)}
+  `;
+}
+
 function renderAdoptionPayment() {
   const farm = selectedFarm();
   if (!farm) {
@@ -1914,6 +2223,7 @@ function renderAdoptionPayment() {
   }
   const unit = programConfig.adoptionAmount;
   const total = unit * state.treeCount;
+  const steps = ["Trees", "Details", "Payment"];
 
   return `
     ${renderPageTitle(
@@ -1932,50 +2242,34 @@ function renderAdoptionPayment() {
             <div class="mini-row"><span class="tag gold">${farm.available} available</span></div>
           </div>
         </div>
-        <div class="section" style="margin-top:18px">
-          <div class="section-title">
-            <h3>Number of trees</h3>
-            <div class="counter">
-              <button class="icon-btn" type="button" data-action="tree-count" data-delta="-1" aria-label="Decrease tree count">${icon("minus")}</button>
-              <span class="counter-value">${state.treeCount}</span>
-              <button class="icon-btn" type="button" data-action="tree-count" data-delta="1" aria-label="Increase tree count">${icon("plus")}</button>
-            </div>
-          </div>
-          <div class="payment-breakdown">
-            <div class="breakdown-row"><span>Adoption amount per tree</span><strong>${money(unit)}</strong></div>
-            <div class="breakdown-row"><span>Selected trees</span><strong>${state.treeCount}</strong></div>
-            <div class="breakdown-row"><span>Receipt and certificate</span><strong>Included</strong></div>
-            <div class="breakdown-row"><span>Total</span><strong>${money(total)}</strong></div>
-          </div>
+        <div class="payment-breakdown" style="margin-top:18px">
+          <div class="breakdown-row"><span>Per tree</span><strong>${money(unit)}</strong></div>
+          <div class="breakdown-row"><span>Selected trees</span><strong>${state.treeCount}</strong></div>
+          <div class="breakdown-row"><span>Total payable</span><strong>${money(total)}</strong></div>
+        </div>
+        <div class="info-list compact-info" style="margin-top:18px">
+          <div><span>Farmer</span><strong>${escapeHtml(farm.farmer)}</strong></div>
+          <div><span>Location</span><strong>${escapeHtml(`${farm.village}, ${farm.district}`)}</strong></div>
+          <div><span>Certificate</span><strong>Generated after payment</strong></div>
         </div>
       </div>
       <div class="form-panel">
-        <div class="section-title"><h2>Payment</h2><span class="pill">${icon("lock")} Secure</span></div>
-        <div class="method-grid">
-          ${["UPI", "Card", "Net banking"].map(
-            (method) => `
-              <button class="chip ${state.paymentMethod === method ? "active" : ""}" type="button" data-action="payment-method" data-method="${method}">
-                ${icon(method === "UPI" ? "smartphone" : method === "Card" ? "credit-card" : "landmark")} ${method}
-              </button>
-            `,
-          ).join("")}
+        <div class="stepper checkout-stepper">
+          ${steps.map((step, index) => `
+            <div class="step ${index === state.adoptionStep ? "active" : ""} ${adoptionStepErrors(index, farm).length === 0 ? "done" : ""}">
+              <span class="step-number">${index + 1}</span>
+              <span>${step}</span>
+            </div>
+          `).join("")}
         </div>
-        <div class="grid-2" style="margin-top:18px">
-          <label class="form-row">
-            <span class="label">Supporter name</span>
-            <input class="input" placeholder="Enter supporter name" value="${escapeHtml(state.paymentForm.supporterName)}" data-field="paymentSupporterName" data-preserve="payment-name" />
-          </label>
-          <label class="form-row">
-            <span class="label">Mobile number</span>
-            <input class="input" placeholder="Enter mobile number" value="${escapeHtml(state.paymentForm.mobile)}" data-field="paymentMobile" data-preserve="payment-mobile" />
-          </label>
-        </div>
-        <div class="card" style="margin-top:18px">
-          <div class="section-title"><h3>Adoption summary</h3><span class="tag gold">${state.treeCount} tree${state.treeCount > 1 ? "s" : ""}</span></div>
-          <p class="muted">A digital certificate and monthly orchard updates will be added to My Adoption after payment.</p>
-        </div>
+        ${renderAdoptionStep(farm, total)}
         <div class="page-actions" style="margin-top:18px">
-          <button class="btn gold" type="button" data-action="complete-payment">${icon("lock-keyhole")} Pay ${money(total)}</button>
+          ${state.adoptionStep > 0 ? `<button class="btn secondary" type="button" data-action="adoption-back">${icon("arrow-left")} Back</button>` : ""}
+          ${
+            state.adoptionStep < 2
+              ? `<button class="btn" type="button" data-action="adoption-next">Continue ${icon("chevron-right")}</button>`
+              : `<button class="btn gold" type="button" data-action="complete-payment" ${adoptionReady(farm) ? "" : "disabled"}>${icon("lock-keyhole")} Confirm ${money(total)}</button>`
+          }
         </div>
       </div>
     </section>
@@ -2181,6 +2475,8 @@ function renderAdminContent() {
       return renderAdminFarmDetail();
     case "verifications":
       return renderAdminVerifications();
+    case "verification-detail":
+      return renderAdminVerificationDetail();
     case "payments":
       return renderAdminPayments();
     case "reports":
@@ -2232,12 +2528,12 @@ function renderAdminFarmers() {
       ${state.verifications.length ? state.verifications.map((item) => `
         <div class="list-card compact">
           <div>
-            <h3>${item.farmer}</h3>
-            <p>${item.farm} - ${item.district} - ${item.trees} trees</p>
+            <h3>${escapeHtml(item.farmer)}</h3>
+            <p>${escapeHtml(item.farm)} - ${escapeHtml(item.district)} - ${item.trees} trees</p>
           </div>
           <div class="page-actions">
-            <span class="pill ${item.status === "Pending" ? "clay" : ""}">${item.status}</span>
-            <button class="btn secondary" type="button" data-action="nav" data-role="admin" data-tab="verifications">${icon("shield-check")} Review</button>
+            <span class="pill ${item.status === "Pending" ? "clay" : ""}">${escapeHtml(item.status)}</span>
+            <button class="btn secondary" type="button" data-action="admin-open-verification" data-id="${item.id}">${icon("shield-check")} Review</button>
           </div>
         </div>
       `).join("") : renderEmptyState("No farmer records", "New farmer verification records will appear here from Supabase.", "users")}
@@ -2302,6 +2598,67 @@ function renderAdminVerifications() {
   return `
     ${renderPageTitle("Farm verification", "Approve KYC and geo-tagged orchard submissions before public listing.")}
     <div class="list">${state.verifications.length ? state.verifications.map(renderQueueItem).join("") : renderEmptyState("No verification queue", "Farmer submissions will appear here when they are ready for review.", "shield-check")}</div>
+  `;
+}
+
+function renderAdminVerificationDetail() {
+  const item = selectedVerification();
+  if (!item) {
+    return `
+      ${renderPageTitle(
+        "Verification review",
+        "Choose a farmer submission to inspect before approval.",
+        `<button class="btn secondary" type="button" data-action="nav" data-role="admin" data-tab="verifications">${icon("arrow-left")} Queue</button>`,
+      )}
+      ${renderEmptyState("No submission selected", "Open a verification record from the queue to review farmer, KYC, orchard, and payout details.", "shield-check")}
+    `;
+  }
+
+  const isPending = item.status === "Pending";
+  const checklist = [
+    item.farmer ? "Farmer name captured" : "Farmer name missing",
+    item.mobile ? "Mobile number captured" : "Mobile number missing",
+    item.bank && item.account ? "Payout details captured" : "Payout details incomplete",
+    item.farm && item.trees ? "Orchard and tree count captured" : "Orchard details incomplete",
+  ];
+
+  return `
+    ${renderPageTitle(
+      "Verification review",
+      `${item.farm} - ${item.district}`,
+      `<button class="btn secondary" type="button" data-action="nav" data-role="admin" data-tab="verifications">${icon("arrow-left")} Queue</button>`,
+    )}
+    <div class="review-layout">
+      <section class="card review-primary">
+        <div class="section-title">
+          <h2>${escapeHtml(item.farm)}</h2>
+          <span class="pill ${isPending ? "clay" : ""}">${escapeHtml(item.status)}</span>
+        </div>
+        <div class="detail-grid">
+          <div><span>Farmer</span><strong>${escapeHtml(item.farmer)}</strong></div>
+          <div><span>Mobile</span><strong>${escapeHtml(item.mobile || "Not provided")}</strong></div>
+          <div><span>District</span><strong>${escapeHtml(item.district)}</strong></div>
+          <div><span>Village</span><strong>${escapeHtml(item.village || "Not provided")}</strong></div>
+          <div><span>Crop</span><strong>${escapeHtml(item.crop)}</strong></div>
+          <div><span>Trees</span><strong>${item.trees}</strong></div>
+          <div><span>Land</span><strong>${escapeHtml(item.acres)} acres</strong></div>
+          <div><span>Submitted</span><strong>${item.createdAt ? new Date(item.createdAt).toLocaleDateString("en-IN") : "Recently"}</strong></div>
+        </div>
+        <div class="page-actions review-actions">
+          <button class="btn" type="button" data-action="admin-verify" data-id="${item.id}" ${item.status === "Verified" ? "disabled" : ""}>${icon("shield-check")} Approve listing</button>
+          <button class="btn secondary" type="button" data-action="admin-request-changes" data-id="${item.id}" ${item.status === "Needs review" ? "disabled" : ""}>${icon("message-square-warning")} Request changes</button>
+        </div>
+      </section>
+      <aside class="card">
+        <div class="section-title"><h2>Review checklist</h2>${icon("clipboard-check")}</div>
+        ${renderChecklist(checklist)}
+        <div class="info-list compact-info" style="margin-top:18px">
+          <div><span>Bank</span><strong>${escapeHtml(item.bank || "Not provided")}</strong></div>
+          <div><span>Account</span><strong>${escapeHtml(item.account ? `****${String(item.account).slice(-4)}` : "Not provided")}</strong></div>
+          <div><span>Public listing</span><strong>${item.status === "Verified" ? "Created" : "After approval"}</strong></div>
+        </div>
+      </aside>
+    </div>
   `;
 }
 
@@ -2400,15 +2757,15 @@ function renderQueueItem(item) {
   return `
     <div class="queue-item">
       <div>
-        <h3>${item.farm}</h3>
-        <p>${item.farmer} - ${item.district} - ${item.trees} trees</p>
-        <div class="mini-row"><span class="tag ${isPending ? "clay" : ""}">${item.status}</span></div>
+        <h3>${escapeHtml(item.farm)}</h3>
+        <p>${escapeHtml(item.farmer)} - ${escapeHtml(item.district)} - ${item.trees} trees</p>
+        <div class="mini-row"><span class="tag ${isPending ? "clay" : ""}">${escapeHtml(item.status)}</span></div>
       </div>
       <div class="page-actions">
         ${
           isPending
-            ? `<button class="btn" type="button" data-action="admin-verify" data-id="${item.id}">${icon("shield-check")} Approve</button>
-               <button class="btn secondary" type="button" data-action="admin-review" data-id="${item.id}">${icon("message-square-warning")} Review</button>`
+            ? `<button class="btn secondary" type="button" data-action="admin-open-verification" data-id="${item.id}">${icon("search-check")} Review details</button>
+               <button class="btn" type="button" data-action="admin-verify" data-id="${item.id}">${icon("shield-check")} Approve</button>`
             : `<span class="pill ${isVerified ? "" : "clay"}">${icon(isVerified ? "check" : "message-square-warning")} ${isVerified ? "Live" : "Needs review"}</span>`
         }
       </div>
@@ -2452,7 +2809,7 @@ function renderTimeline(items) {
 function renderChecklist(items) {
   return `
     <div class="check-list">
-      ${items.map((item) => `<div>${icon("check-circle-2")} <span>${item}</span></div>`).join("")}
+      ${items.map((item) => `<div>${icon("check-circle-2")} <span>${escapeHtml(item)}</span></div>`).join("")}
     </div>
   `;
 }
@@ -2625,6 +2982,10 @@ async function handleAuthSubmit() {
   const errors = [];
 
   if (state.authMode === "signup" && !name) errors.push("Enter your full name.");
+  if (state.authMode === "signup" && !isValidMobile(state.authMobile)) errors.push("Enter a valid 10 digit mobile number.");
+  if (state.authMode === "signup" && state.authRole === "supporter" && !state.authLocation.trim()) errors.push("Enter your city or district.");
+  if (state.authMode === "signup" && state.authRole === "farmer" && !state.authVillage.trim()) errors.push("Enter village name.");
+  if (state.authMode === "signup" && state.authRole === "farmer" && !state.authOrchardName.trim()) errors.push("Enter orchard name.");
   if (!isValidEmail(email)) errors.push("Enter a valid email address.");
   if (password.length < 8) errors.push("Use a password with at least 8 characters.");
 
@@ -2647,16 +3008,24 @@ async function handleAuthSubmit() {
 
   try {
     if (state.authMode === "signup") {
+      const metadata = {
+        full_name: name,
+        role: state.authRole,
+        preferred_language: state.lang,
+        mobile: digitsOnly(state.authMobile),
+      };
+      if (state.authRole === "farmer") {
+        metadata.district = state.authDistrict;
+        metadata.village = state.authVillage.trim();
+        metadata.orchard_name = state.authOrchardName.trim();
+      } else {
+        metadata.location = state.authLocation.trim();
+      }
+
       const { data, error } = await supabaseBridge.client.auth.signUp({
         email,
         password,
-        options: {
-          data: {
-            full_name: name,
-            role: state.authRole,
-            preferred_language: state.lang,
-          },
-        },
+        options: { data: metadata },
       });
       if (error) throw error;
       if (data?.session) {
@@ -2854,7 +3223,26 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "admin-open-verification") {
+    state.selectedVerificationId = target.dataset.id;
+    state.adminTab = "verification-detail";
+    render();
+    return;
+  }
+
   if (action === "start-adoption") {
+    const farm = selectedFarm();
+    if (!farm) {
+      state.toast = "Choose a verified farm before checkout.";
+      render();
+      return;
+    }
+    state.treeCount = Math.max(1, Math.min(state.treeCount, Math.max(1, farm.available)));
+    state.paymentForm.supporterName = state.paymentForm.supporterName || (state.supporterProfile.name === "Supporter" ? "" : state.supporterProfile.name);
+    state.paymentForm.mobile = state.paymentForm.mobile || (state.supporterProfile.mobile.startsWith("Add ") ? "" : state.supporterProfile.mobile);
+    state.paymentForm.email = state.paymentForm.email || (state.supporterProfile.email.startsWith("Add ") ? state.session?.email || "" : state.supporterProfile.email);
+    state.paymentForm.location = state.paymentForm.location || (state.supporterProfile.location.startsWith("Add ") ? "" : state.supporterProfile.location);
+    state.adoptionStep = 0;
     state.adoptionComplete = false;
     state.supporterTab = "adoption";
     render();
@@ -2862,7 +3250,28 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "tree-count") {
-    state.treeCount = Math.max(1, Math.min(25, state.treeCount + Number(target.dataset.delta)));
+    const farm = selectedFarm();
+    const maxTrees = farm ? Math.max(1, farm.available) : 25;
+    state.treeCount = Math.max(1, Math.min(maxTrees, state.treeCount + Number(target.dataset.delta)));
+    render();
+    return;
+  }
+
+  if (action === "adoption-next") {
+    const farm = selectedFarm();
+    const errors = adoptionStepErrors(state.adoptionStep, farm);
+    if (errors.length) {
+      state.toast = errors[0];
+      render();
+      return;
+    }
+    state.adoptionStep = Math.min(2, state.adoptionStep + 1);
+    render();
+    return;
+  }
+
+  if (action === "adoption-back") {
+    state.adoptionStep = Math.max(0, state.adoptionStep - 1);
     render();
     return;
   }
@@ -2875,6 +3284,7 @@ document.addEventListener("click", async (event) => {
 
   if (action === "new-adoption") {
     state.adoptionComplete = false;
+    state.adoptionStep = 0;
     state.treeCount = 1;
     state.supporterTab = "orchards";
     render();
@@ -2882,6 +3292,12 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "farmer-next") {
+    const errors = farmerStepErrors(state.farmerStep);
+    if (errors.length) {
+      state.toast = errors[0];
+      render();
+      return;
+    }
     state.farmerStep = Math.min(3, state.farmerStep + 1);
     render();
     return;
@@ -2894,8 +3310,9 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "farmer-submit") {
-    if (!farmerSubmissionReady()) {
-      state.toast = "Complete farmer, orchard, tree, and bank details before submitting.";
+    const errors = farmerStepErrors(3);
+    if (errors.length) {
+      state.toast = errors[0];
       render();
       return;
     }
@@ -2924,9 +3341,11 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  if (action === "admin-verify" || action === "admin-review") {
-    const result = await saveVerificationStatus(target.dataset.id, action === "admin-verify" ? "Verified" : "Needs review");
-    state.toast = result.ok ? `Verification marked ${action === "admin-verify" ? "Verified" : "Needs review"}` : result.message;
+  if (action === "admin-verify" || action === "admin-review" || action === "admin-request-changes") {
+    const markVerified = action === "admin-verify";
+    const result = await saveVerificationStatus(target.dataset.id, markVerified ? "Verified" : "Needs review");
+    state.selectedVerificationId = target.dataset.id || state.selectedVerificationId;
+    state.toast = result.ok ? `Verification marked ${markVerified ? "Verified" : "Needs review"}` : result.message;
     render();
     return;
   }
@@ -2936,6 +3355,7 @@ document.addEventListener("click", async (event) => {
     if (result.ok) {
       state.adoptionComplete = true;
       state.adoptionRecord = result.record;
+      state.adoptionStep = 0;
     } else {
       state.toast = result.message;
     }
@@ -2948,6 +3368,11 @@ document.addEventListener("input", (event) => {
   const target = event.target;
 
   if (target.dataset.field && target.dataset.field in state.farmerForm) {
+    if (target.dataset.field === "farmerPhotos") {
+      state.farmerForm.farmerPhotos = Array.from(target.files || []).map((file) => file.name);
+      render();
+      return;
+    }
     state.farmerForm[target.dataset.field] = target.value;
     return;
   }
@@ -2972,6 +3397,26 @@ document.addEventListener("input", (event) => {
     return;
   }
 
+  if (target.dataset.field === "paymentEmail") {
+    state.paymentForm.email = target.value;
+    return;
+  }
+
+  if (target.dataset.field === "paymentLocation") {
+    state.paymentForm.location = target.value;
+    return;
+  }
+
+  if (target.dataset.field === "paymentReference") {
+    state.paymentForm.paymentReference = target.value;
+    return;
+  }
+
+  if (target.dataset.field === "giftName") {
+    state.paymentForm.giftName = target.value;
+    return;
+  }
+
   if (target.dataset.field === "supporterName") {
     state.supporterProfileDraft.name = target.value;
     return;
@@ -2992,7 +3437,7 @@ document.addEventListener("input", (event) => {
     return;
   }
 
-  if (["authEmail", "authPassword", "authName"].includes(target.dataset.field)) {
+  if (["authEmail", "authPassword", "authName", "authMobile", "authLocation", "authVillage", "authOrchardName"].includes(target.dataset.field)) {
     state[target.dataset.field] = target.value;
     state.authMessage = "";
     return;
@@ -3017,6 +3462,12 @@ document.addEventListener("change", (event) => {
     return;
   }
 
+  if (target.dataset.field === "authDistrict") {
+    state.authDistrict = target.value;
+    state.authMessage = "";
+    return;
+  }
+
   if (target.dataset.filter === "district") {
     state.districtFilter = target.value;
     render();
@@ -3025,6 +3476,11 @@ document.addEventListener("change", (event) => {
   if (target.dataset.field === "updatePhotos") {
     state.updatePhotos = Array.from(target.files || []).map((file) => file.name);
     render();
+  }
+
+  if (target.dataset.field === "agreeTerms") {
+    state.paymentForm.agreeTerms = target.checked;
+    render(true);
   }
 });
 
